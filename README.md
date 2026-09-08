@@ -1,10 +1,6 @@
 # APNG-phantom-tank (APNG伪装工具)
 
 移动端 (Android) 用于制作与发送在 QQ 或支持 APNG 格式解码软件的幻影坦克伪装图片工具。
-
-**开发者**: 本软件由 **Zeraphyms** 所制  
-**项目地址**: [https://github.com/Zeraphyms/PNG-phantom-tank](https://github.com/Zeraphyms/PNG-phantom-tank)
-
 基于 **APNG (Animated Portable Network Graphics) 特殊隐写机制** 实现，完全本地离线处理，无需网络上载，保护隐私安全。
 
 ---
