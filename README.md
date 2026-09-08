@@ -66,10 +66,8 @@
 
 ## 👨‍💻 开发者与开源项目
 
-- **制作者**: Zeraphyms
-- **GitHub 仓库**: [https://github.com/Zeraphyms/PNG-phantom-tank](https://github.com/Zeraphyms/PNG-phantom-tank)
 - **开源协议**: 本项目仅供个人学习与技术交流使用。
 
 ---
 
-## 🌟 如果喜欢本项目，可以给我的项目点一个🌟Star.
+## 🌟 如果喜欢本项目，可以给我的💩点一个🌟Star.
