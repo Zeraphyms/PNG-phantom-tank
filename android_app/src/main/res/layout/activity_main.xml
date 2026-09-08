@@ -33,7 +33,7 @@
             android:paddingEnd="8dp"
             android:paddingTop="3dp"
             android:paddingBottom="3dp"
-            android:text="移动版 v1.1"
+            android:text="移动版 v1.2"
             android:textColor="#E0E7FF"
             android:textSize="11sp" />
     </LinearLayout>
@@ -679,4 +679,5 @@
         </FrameLayout>
     </ScrollView>
 </LinearLayout>
+
 
