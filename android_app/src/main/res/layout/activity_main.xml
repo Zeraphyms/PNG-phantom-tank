@@ -19,7 +19,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="PNG 伪装工具"
+            android:text="APNG伪装工具"
             android:textColor="#FFFFFF"
             android:textSize="19sp"
             android:textStyle="bold" />
@@ -679,3 +679,4 @@
         </FrameLayout>
     </ScrollView>
 </LinearLayout>
+
