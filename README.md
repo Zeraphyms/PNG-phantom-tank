@@ -54,7 +54,6 @@
 │   ├── src/main/assets/       # 内置默认封面图片
 │   └── src/main/AndroidManifest.xml
 ├── png伪装工具.apk             # 编译签名完成的正式安卓安装包
-├── png_disguise.apk           # 备用英文名安装包 (完全相同)
 ├── text/                      # 用于伪装测试的样例图片与动图
 ├── 使用说明.txt                # 原始使用说明文档
 └── README.md                  # 项目说明文档
@@ -65,3 +64,4 @@
 ## 📄 开源许可证
 
 本项目仅供个人学习与技术交流使用。
+
