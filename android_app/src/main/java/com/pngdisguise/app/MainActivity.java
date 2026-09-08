@@ -3,6 +3,7 @@ package com.pngdisguise.app;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.ProgressDialog;
+import android.content.ClipData;
 import android.content.ContentResolver;
 import android.content.ContentValues;
 import android.content.Intent;
@@ -19,7 +20,6 @@ import android.provider.MediaStore;
 import android.view.View;
 import android.widget.Button;
 import android.widget.ImageView;
-import android.widget.LinearLayout;
 import android.widget.RelativeLayout;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -30,7 +30,9 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
 import java.util.Locale;
 
 public class MainActivity extends Activity {
@@ -46,6 +48,7 @@ public class MainActivity extends Activity {
     private View pageRestore;
     private View pageHelp;
 
+    // Disguise Views
     private RelativeLayout boxSelectSrc;
     private View layoutSrcPlaceholder;
     private ImageView ivSrcPreview;
@@ -56,39 +59,45 @@ public class MainActivity extends Activity {
     private TextView btnResetCover;
     private Button btnDoDisguise;
     private View cardDisguiseResult;
+    private TextView tvDisguiseResultTitle;
     private ImageView ivResultCoverView;
     private ImageView ivResultRealView;
     private TextView tvDisguiseSummary;
     private Button btnSaveDisguise;
     private Button btnShareDisguise;
 
+    // Restore Views
     private RelativeLayout boxSelectDisguisedFile;
     private View layoutRestorePlaceholder;
     private ImageView ivRestoreSrcPreview;
+    private TextView tvRestoreFileCountHint;
     private TextView tvRestoreInspectInfo;
     private Button btnDoRestore;
     private View cardRestoreResult;
+    private TextView tvRestoreResultTitle;
     private ImageView ivRestoredImage;
     private TextView tvRestoreSummary;
     private Button btnSaveRestored;
     private Button btnShareRestored;
 
-    private Uri srcImageUri;
-    private byte[] srcImageBytes;
-    private Bitmap srcBitmap;
-    private boolean isSrcGif = false;
+    // Help View
+    private TextView tvProjectLink;
+
+    // States for Disguise
+    private final List<Uri> srcUris = new ArrayList<>();
+    private Bitmap firstSrcBitmap;
 
     private Bitmap defaultCoverBitmap;
     private Bitmap customCoverBitmap;
 
-    private byte[] lastDisguisedBytes;
-    private File lastDisguisedFile;
+    private final List<byte[]> lastDisguisedBytesList = new ArrayList<>();
+    private final List<File> lastDisguisedFileList = new ArrayList<>();
 
-    private Uri restoreImageUri;
-    private byte[] restoreImageBytes;
-    private byte[] lastRestoredBytes;
-    private File lastRestoredFile;
-    private Bitmap lastRestoredBitmap;
+    // States for Restore
+    private final List<Uri> restoreUris = new ArrayList<>();
+    private final List<byte[]> lastRestoredBytesList = new ArrayList<>();
+    private final List<File> lastRestoredFileList = new ArrayList<>();
+    private Bitmap firstRestoredBitmap;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
@@ -121,6 +130,7 @@ public class MainActivity extends Activity {
         btnResetCover = (TextView) findViewById(R.id.btn_reset_cover);
         btnDoDisguise = (Button) findViewById(R.id.btn_do_disguise);
         cardDisguiseResult = findViewById(R.id.card_disguise_result);
+        tvDisguiseResultTitle = (TextView) findViewById(R.id.tv_disguise_result_title);
         ivResultCoverView = (ImageView) findViewById(R.id.iv_result_cover_view);
         ivResultRealView = (ImageView) findViewById(R.id.iv_result_real_view);
         tvDisguiseSummary = (TextView) findViewById(R.id.tv_disguise_summary);
@@ -130,13 +140,17 @@ public class MainActivity extends Activity {
         boxSelectDisguisedFile = (RelativeLayout) findViewById(R.id.box_select_disguised_file);
         layoutRestorePlaceholder = findViewById(R.id.layout_restore_placeholder);
         ivRestoreSrcPreview = (ImageView) findViewById(R.id.iv_restore_src_preview);
+        tvRestoreFileCountHint = (TextView) findViewById(R.id.tv_restore_file_count_hint);
         tvRestoreInspectInfo = (TextView) findViewById(R.id.tv_restore_inspect_info);
         btnDoRestore = (Button) findViewById(R.id.btn_do_restore);
         cardRestoreResult = findViewById(R.id.card_restore_result);
+        tvRestoreResultTitle = (TextView) findViewById(R.id.tv_restore_result_title);
         ivRestoredImage = (ImageView) findViewById(R.id.iv_restored_image);
         tvRestoreSummary = (TextView) findViewById(R.id.tv_restore_summary);
         btnSaveRestored = (Button) findViewById(R.id.btn_save_restored);
         btnShareRestored = (Button) findViewById(R.id.btn_share_restored);
+
+        tvProjectLink = (TextView) findViewById(R.id.tv_project_link);
     }
 
     private void setupTabs() {
@@ -183,11 +197,12 @@ public class MainActivity extends Activity {
     }
 
     private void setupEventListeners() {
+        // Disguise Page
         boxSelectSrc.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) { pickImage(REQ_PICK_SRC_IMAGE); }
+            public void onClick(View v) { pickImages(REQ_PICK_SRC_IMAGE, true); }
         });
         btnChangeCover.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) { pickImage(REQ_PICK_CUSTOM_COVER); }
+            public void onClick(View v) { pickImages(REQ_PICK_CUSTOM_COVER, false); }
         });
         btnResetCover.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
@@ -202,14 +217,15 @@ public class MainActivity extends Activity {
             public void onClick(View v) { doDisguise(); }
         });
         btnSaveDisguise.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) { saveDisguiseToGallery(); }
+            public void onClick(View v) { saveDisguisesToGallery(); }
         });
         btnShareDisguise.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) { shareFile(lastDisguisedFile, "image/png"); }
+            public void onClick(View v) { shareFiles(lastDisguisedFileList, "image/png"); }
         });
 
+        // Restore Page
         boxSelectDisguisedFile.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) { pickImage(REQ_PICK_DISGUISED_IMAGE); }
+            public void onClick(View v) { pickImages(REQ_PICK_DISGUISED_IMAGE, true); }
         });
         btnDoRestore.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) { doRestore(); }
@@ -218,51 +234,91 @@ public class MainActivity extends Activity {
             public void onClick(View v) { saveRestoredToGallery(); }
         });
         btnShareRestored.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) { shareFile(lastRestoredFile, "image/png"); }
+            public void onClick(View v) { shareFiles(lastRestoredFileList, "image/png"); }
         });
+
+        // Project Link in Help
+        if (tvProjectLink != null) {
+            tvProjectLink.setOnClickListener(new View.OnClickListener() {
+                public void onClick(View v) {
+                    try {
+                        Intent browserIntent = new Intent(Intent.ACTION_VIEW,
+                                Uri.parse("https://github.com/Zeraphyms/PNG-phantom-tank"));
+                        startActivity(browserIntent);
+                    } catch (Exception e) {
+                        Toast.makeText(MainActivity.this, "无法打开浏览器", Toast.LENGTH_SHORT).show();
+                    }
+                }
+            });
+        }
     }
 
-    private void pickImage(int requestCode) {
+    private void pickImages(int requestCode, boolean allowMultiple) {
         Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
         intent.setType("image/*");
         intent.addCategory(Intent.CATEGORY_OPENABLE);
-        startActivityForResult(Intent.createChooser(intent, "选择图片"), requestCode);
+        if (allowMultiple) {
+            intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+        }
+        startActivityForResult(Intent.createChooser(intent, allowMultiple ? "选择图片 (可多选)" : "选择图片"), requestCode);
     }
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (resultCode != RESULT_OK || data == null || data.getData() == null) {
+        if (resultCode != RESULT_OK || data == null) {
             return;
         }
 
-        Uri uri = data.getData();
+        List<Uri> selectedUris = new ArrayList<>();
+        if (data.getClipData() != null) {
+            ClipData clip = data.getClipData();
+            for (int i = 0; i < clip.getItemCount(); i++) {
+                Uri itemUri = clip.getItemAt(i).getUri();
+                if (itemUri != null) {
+                    selectedUris.add(itemUri);
+                }
+            }
+        } else if (data.getData() != null) {
+            selectedUris.add(data.getData());
+        }
+
+        if (selectedUris.isEmpty()) return;
+
         if (requestCode == REQ_PICK_SRC_IMAGE) {
-            handleSrcImageSelected(uri);
+            handleSrcImagesSelected(selectedUris);
         } else if (requestCode == REQ_PICK_CUSTOM_COVER) {
-            handleCustomCoverSelected(uri);
+            handleCustomCoverSelected(selectedUris.get(0));
         } else if (requestCode == REQ_PICK_DISGUISED_IMAGE) {
-            handleDisguisedFileSelected(uri);
+            handleDisguisedFilesSelected(selectedUris);
         }
     }
 
-    private void handleSrcImageSelected(Uri uri) {
-        try {
-            srcImageUri = uri;
-            srcImageBytes = readUriBytes(uri);
-            isSrcGif = GifDecoder.isGif(srcImageBytes);
+    private void handleSrcImagesSelected(List<Uri> uris) {
+        srcUris.clear();
+        srcUris.addAll(uris);
 
-            srcBitmap = BitmapFactory.decodeByteArray(srcImageBytes, 0, srcImageBytes.length);
-            if (srcBitmap != null) {
-                ivSrcPreview.setImageBitmap(srcBitmap);
+        try {
+            byte[] firstBytes = readUriBytes(srcUris.get(0));
+            firstSrcBitmap = BitmapFactory.decodeByteArray(firstBytes, 0, firstBytes.length);
+            if (firstSrcBitmap != null) {
+                ivSrcPreview.setImageBitmap(firstSrcBitmap);
                 ivSrcPreview.setVisibility(View.VISIBLE);
                 layoutSrcPlaceholder.setVisibility(View.GONE);
-
-                String type = isSrcGif ? "GIF 动图" : "静态图片";
-                tvSrcFileInfo.setText(String.format(Locale.CHINA, "%s | %dx%d | %.1f KB",
-                        type, srcBitmap.getWidth(), srcBitmap.getHeight(), srcImageBytes.length / 1024f));
-                cardDisguiseResult.setVisibility(View.GONE);
             }
+
+            int count = srcUris.size();
+            if (count == 1) {
+                boolean isGif = GifDecoder.isGif(firstBytes);
+                String type = isGif ? "GIF 动图" : "静态图片";
+                tvSrcFileInfo.setText(String.format(Locale.CHINA, "已选单张: %s | %dx%d | %.1f KB",
+                        type, firstSrcBitmap != null ? firstSrcBitmap.getWidth() : 0,
+                        firstSrcBitmap != null ? firstSrcBitmap.getHeight() : 0,
+                        firstBytes.length / 1024f));
+            } else {
+                tvSrcFileInfo.setText(String.format(Locale.CHINA, "已批量选择 %d 张图片 (封面将自动生成序号)", count));
+            }
+            cardDisguiseResult.setVisibility(View.GONE);
         } catch (Exception e) {
             Toast.makeText(this, "读取图片失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
@@ -283,28 +339,37 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void handleDisguisedFileSelected(Uri uri) {
-        try {
-            restoreImageUri = uri;
-            restoreImageBytes = readUriBytes(uri);
+    private void handleDisguisedFilesSelected(List<Uri> uris) {
+        restoreUris.clear();
+        restoreUris.addAll(uris);
 
-            Bitmap bm = BitmapFactory.decodeByteArray(restoreImageBytes, 0, restoreImageBytes.length);
+        try {
+            byte[] firstBytes = readUriBytes(restoreUris.get(0));
+            Bitmap bm = BitmapFactory.decodeByteArray(firstBytes, 0, firstBytes.length);
             if (bm != null) {
                 ivRestoreSrcPreview.setImageBitmap(bm);
                 ivRestoreSrcPreview.setVisibility(View.VISIBLE);
                 layoutRestorePlaceholder.setVisibility(View.GONE);
             }
 
-            ApngCodec.DisguiseInfo info = ApngCodec.inspectDisguise(restoreImageBytes);
+            int count = restoreUris.size();
+            tvRestoreFileCountHint.setText(String.format(Locale.CHINA, "已选 %d 个文件准备还原", count));
+
+            ApngCodec.DisguiseInfo info = ApngCodec.inspectDisguise(firstBytes);
             tvRestoreInspectInfo.setVisibility(View.VISIBLE);
-            if (info != null) {
-                String kindStr = "STATIC".equals(info.meta.kind) ? "静态隐写" : "GIF动图隐写";
-                tvRestoreInspectInfo.setText(String.format(Locale.CHINA, "✔ 识别为伪装 APNG (%s, 隐藏%d帧, 尺寸 %dx%d)",
-                        kindStr, info.meta.count, info.width, info.height));
-                tvRestoreInspectInfo.setTextColor(getResources().getColor(R.color.success));
+            if (count == 1) {
+                if (info != null) {
+                    String kindStr = "STATIC".equals(info.meta.kind) ? "静态隐写" : "GIF动图隐写";
+                    tvRestoreInspectInfo.setText(String.format(Locale.CHINA, "✔ 识别为伪装 APNG (%s, 隐藏%d帧, 尺寸 %dx%d)",
+                            kindStr, info.meta.count, info.width, info.height));
+                    tvRestoreInspectInfo.setTextColor(getResources().getColor(R.color.success));
+                } else {
+                    tvRestoreInspectInfo.setText("ℹ 未检测到标准隐写特征，尝试直接提取");
+                    tvRestoreInspectInfo.setTextColor(getResources().getColor(R.color.warning));
+                }
             } else {
-                tvRestoreInspectInfo.setText("ℹ 未检测到标准隐写特征，尝试强制解析还原");
-                tvRestoreInspectInfo.setTextColor(getResources().getColor(R.color.warning));
+                tvRestoreInspectInfo.setText(String.format(Locale.CHINA, "已批量选择 %d 个待还原文件，点击下方按钮一键批量还原", count));
+                tvRestoreInspectInfo.setTextColor(getResources().getColor(R.color.primary));
             }
             cardRestoreResult.setVisibility(View.GONE);
         } catch (Exception e) {
@@ -313,48 +378,86 @@ public class MainActivity extends Activity {
     }
 
     private void doDisguise() {
-        if (srcImageBytes == null || srcBitmap == null) {
+        if (srcUris.isEmpty()) {
             Toast.makeText(this, "请先选择需要伪装的图片", Toast.LENGTH_SHORT).show();
             return;
         }
 
+        final int totalCount = srcUris.size();
         final ProgressDialog progress = new ProgressDialog(this);
-        progress.setMessage("正在编码生成 APNG 伪装图片...");
+        progress.setMessage("正在准备伪装图片 (0/" + totalCount + ")...");
         progress.setCancelable(false);
         progress.show();
 
         new Thread(new Runnable() {
             public void run() {
                 try {
-                    Bitmap cover = getActiveCover();
-                    final byte[] result;
-                    if (isSrcGif) {
-                        result = ImageProcessor.disguiseGif(srcImageBytes, cover, null);
-                    } else {
-                        result = ImageProcessor.disguiseStatic(srcBitmap, cover, null);
-                    }
-                    lastDisguisedBytes = result;
+                    lastDisguisedBytesList.clear();
+                    lastDisguisedFileList.clear();
 
+                    Bitmap cover = getActiveCover();
                     File cacheDir = getExternalFilesDir(Environment.DIRECTORY_PICTURES);
                     if (cacheDir == null) cacheDir = getFilesDir();
-                    String fileName = "disguised_" + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.CHINA).format(new Date()) + ".png";
-                    lastDisguisedFile = new File(cacheDir, fileName);
-                    FileOutputStream fos = new FileOutputStream(lastDisguisedFile);
-                    fos.write(result);
-                    fos.close();
+                    String timeBase = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.CHINA).format(new Date());
 
-                    final Bitmap coverCanvas = ImageProcessor.makeCover(srcBitmap.getWidth(), srcBitmap.getHeight(), cover, null);
+                    for (int i = 0; i < totalCount; i++) {
+                        final int currentIdx = i + 1;
+                        mainHandler.post(new Runnable() {
+                            public void run() {
+                                progress.setMessage(String.format(Locale.CHINA, "正在伪装第 %d/%d 张图片...", currentIdx, totalCount));
+                            }
+                        });
+
+                        Uri uri = srcUris.get(i);
+                        byte[] bytes = readUriBytes(uri);
+                        boolean isGif = GifDecoder.isGif(bytes);
+
+                        Integer badge = (totalCount > 1) ? currentIdx : null;
+                        byte[] result;
+                        if (isGif) {
+                            result = ImageProcessor.disguiseGif(bytes, cover, badge);
+                        } else {
+                            Bitmap bm = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+                            if (bm == null) continue;
+                            result = ImageProcessor.disguiseStatic(bm, cover, badge);
+                        }
+
+                        lastDisguisedBytesList.add(result);
+
+                        String fileName = String.format(Locale.CHINA, "%03d_disguised_%s.png", currentIdx, timeBase);
+                        File outFile = new File(cacheDir, fileName);
+                        FileOutputStream fos = new FileOutputStream(outFile);
+                        fos.write(result);
+                        fos.close();
+                        lastDisguisedFileList.add(outFile);
+                    }
+
+                    // 预览图生成第一张的封面和内容
+                    final Bitmap previewCover = (firstSrcBitmap != null) ?
+                            ImageProcessor.makeCover(firstSrcBitmap.getWidth(), firstSrcBitmap.getHeight(), cover, totalCount > 1 ? 1 : null) : null;
 
                     mainHandler.post(new Runnable() {
                         public void run() {
                             progress.dismiss();
                             cardDisguiseResult.setVisibility(View.VISIBLE);
-                            ivResultCoverView.setImageBitmap(coverCanvas);
-                            ivResultRealView.setImageBitmap(srcBitmap);
-                            tvDisguiseSummary.setText(String.format(Locale.CHINA,
-                                    "伪装完成！格式: APNG (.png) | 尺寸: %dx%d | 大小: %.1f KB",
-                                    srcBitmap.getWidth(), srcBitmap.getHeight(), result.length / 1024f));
-                            Toast.makeText(MainActivity.this, "伪装成功！可保存到相册或直接发送", Toast.LENGTH_LONG).show();
+                            if (previewCover != null) {
+                                ivResultCoverView.setImageBitmap(previewCover);
+                            }
+                            if (firstSrcBitmap != null) {
+                                ivResultRealView.setImageBitmap(firstSrcBitmap);
+                            }
+
+                            if (totalCount == 1) {
+                                tvDisguiseResultTitle.setText("🎉 伪装生成成功 (双重视角预览)");
+                                byte[] res = lastDisguisedBytesList.get(0);
+                                tvDisguiseSummary.setText(String.format(Locale.CHINA,
+                                        "单张伪装完成！格式: APNG (.png) | 大小: %.1f KB", res.length / 1024f));
+                            } else {
+                                tvDisguiseResultTitle.setText(String.format(Locale.CHINA, "🎉 批量伪装完成 (共 %d 张，封面带序号)", totalCount));
+                                tvDisguiseSummary.setText(String.format(Locale.CHINA,
+                                        "成功生成 %d 张 APNG 伪装图片 (左图展示第1张封面序号效果)", totalCount));
+                            }
+                            Toast.makeText(MainActivity.this, "伪装完成！可全部保存到相册或批量发送", Toast.LENGTH_LONG).show();
                         }
                     });
                 } catch (final Exception e) {
@@ -374,45 +477,83 @@ public class MainActivity extends Activity {
     }
 
     private void doRestore() {
-        if (restoreImageBytes == null) {
+        if (restoreUris.isEmpty()) {
             Toast.makeText(this, "请先选择需要还原的伪装图片", Toast.LENGTH_SHORT).show();
             return;
         }
 
+        final int totalCount = restoreUris.size();
         final ProgressDialog progress = new ProgressDialog(this);
-        progress.setMessage("正在提取隐藏图片数据...");
+        progress.setMessage("正在提取隐藏图片 (0/" + totalCount + ")...");
         progress.setCancelable(false);
         progress.show();
 
         new Thread(new Runnable() {
             public void run() {
                 try {
-                    final byte[] restored = ImageProcessor.restoreDisguise(restoreImageBytes);
-                    lastRestoredBytes = restored;
+                    lastRestoredBytesList.clear();
+                    lastRestoredFileList.clear();
 
                     File cacheDir = getExternalFilesDir(Environment.DIRECTORY_PICTURES);
                     if (cacheDir == null) cacheDir = getFilesDir();
-                    String fileName = "restored_" + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.CHINA).format(new Date()) + ".png";
-                    lastRestoredFile = new File(cacheDir, fileName);
-                    FileOutputStream fos = new FileOutputStream(lastRestoredFile);
-                    fos.write(restored);
-                    fos.close();
+                    String timeBase = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.CHINA).format(new Date());
 
-                    final Bitmap restoredBm = BitmapFactory.decodeByteArray(restored, 0, restored.length);
-                    lastRestoredBitmap = restoredBm;
+                    int successCount = 0;
+                    for (int i = 0; i < totalCount; i++) {
+                        final int currentIdx = i + 1;
+                        mainHandler.post(new Runnable() {
+                            public void run() {
+                                progress.setMessage(String.format(Locale.CHINA, "正在提取第 %d/%d 张隐藏真图...", currentIdx, totalCount));
+                            }
+                        });
 
+                        Uri uri = restoreUris.get(i);
+                        byte[] bytes = readUriBytes(uri);
+
+                        byte[] restored;
+                        try {
+                            restored = ImageProcessor.restoreDisguise(bytes);
+                        } catch (Exception e) {
+                            continue;
+                        }
+
+                        lastRestoredBytesList.add(restored);
+                        successCount++;
+
+                        String fileName = String.format(Locale.CHINA, "%03d_restored_%s.png", currentIdx, timeBase);
+                        File outFile = new File(cacheDir, fileName);
+                        FileOutputStream fos = new FileOutputStream(outFile);
+                        fos.write(restored);
+                        fos.close();
+                        lastRestoredFileList.add(outFile);
+
+                        if (firstRestoredBitmap == null) {
+                            firstRestoredBitmap = BitmapFactory.decodeByteArray(restored, 0, restored.length);
+                        }
+                    }
+
+                    final int finalSuccess = successCount;
                     mainHandler.post(new Runnable() {
                         public void run() {
                             progress.dismiss();
+                            if (finalSuccess == 0) {
+                                Toast.makeText(MainActivity.this, "未能从所选文件中还原出有效图片", Toast.LENGTH_LONG).show();
+                                return;
+                            }
                             cardRestoreResult.setVisibility(View.VISIBLE);
-                            if (restoredBm != null) {
-                                ivRestoredImage.setImageBitmap(restoredBm);
+                            if (firstRestoredBitmap != null) {
+                                ivRestoredImage.setImageBitmap(firstRestoredBitmap);
+                            }
+
+                            if (totalCount == 1) {
+                                tvRestoreResultTitle.setText("✨ 成功提取还原真实图片");
+                                byte[] res = lastRestoredBytesList.get(0);
                                 tvRestoreSummary.setText(String.format(Locale.CHINA,
-                                        "还原成功！尺寸: %dx%d | 大小: %.1f KB",
-                                        restoredBm.getWidth(), restoredBm.getHeight(), restored.length / 1024f));
+                                        "还原成功！格式: PNG | 大小: %.1f KB", res.length / 1024f));
                             } else {
+                                tvRestoreResultTitle.setText(String.format(Locale.CHINA, "✨ 批量还原完成 (成功提取 %d/%d 张)", finalSuccess, totalCount));
                                 tvRestoreSummary.setText(String.format(Locale.CHINA,
-                                        "还原成功！动画 APNG | 大小: %.1f KB", restored.length / 1024f));
+                                        "共成功提取 %d 张真实图片，可一键全部保存或批量发送分享", finalSuccess));
                             }
                             Toast.makeText(MainActivity.this, "真实图片提取成功！", Toast.LENGTH_SHORT).show();
                         }
@@ -423,7 +564,7 @@ public class MainActivity extends Activity {
                             progress.dismiss();
                             new AlertDialog.Builder(MainActivity.this)
                                     .setTitle("还原失败")
-                                    .setMessage("未能从该文件中还原出有效图片，请确保文件是本工具伪装的完整文件。\n详情: " + e.getMessage())
+                                    .setMessage("提取过程中发生错误: " + e.getMessage())
                                     .setPositiveButton("确定", null)
                                     .show();
                         }
@@ -433,20 +574,30 @@ public class MainActivity extends Activity {
         }).start();
     }
 
-    private void saveDisguiseToGallery() {
-        if (lastDisguisedBytes == null) return;
-        saveBytesToPictures(lastDisguisedBytes, "disguised_apng.png");
+    private void saveDisguisesToGallery() {
+        if (lastDisguisedBytesList.isEmpty()) {
+            Toast.makeText(this, "暂无生成的伪装图片可保存", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        saveBytesListToPictures(lastDisguisedBytesList, "disguised");
     }
 
     private void saveRestoredToGallery() {
-        if (lastRestoredBytes == null) return;
-        saveBytesToPictures(lastRestoredBytes, "restored_real.png");
+        if (lastRestoredBytesList.isEmpty()) {
+            Toast.makeText(this, "暂无还原的图片可保存", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        saveBytesListToPictures(lastRestoredBytesList, "restored");
     }
 
-    private void saveBytesToPictures(byte[] data, String prefix) {
-        try {
-            String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.CHINA).format(new Date());
-            String fileName = prefix.replace(".png", "") + "_" + timeStamp + ".png";
+    private void saveBytesListToPictures(List<byte[]> list, String prefix) {
+        int savedCount = 0;
+        String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.CHINA).format(new Date());
+        ContentResolver resolver = getContentResolver();
+
+        for (int i = 0; i < list.size(); i++) {
+            byte[] data = list.get(i);
+            String fileName = String.format(Locale.CHINA, "%s_%s_%03d.png", prefix, timeStamp, i + 1);
 
             ContentValues values = new ContentValues();
             values.put(MediaStore.Images.Media.DISPLAY_NAME, fileName);
@@ -456,40 +607,56 @@ public class MainActivity extends Activity {
                 values.put(MediaStore.Images.Media.IS_PENDING, 1);
             }
 
-            ContentResolver resolver = getContentResolver();
-            Uri uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
-            if (uri != null) {
-                OutputStream os = resolver.openOutputStream(uri);
-                if (os != null) {
-                    os.write(data);
-                    os.close();
+            try {
+                Uri uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+                if (uri != null) {
+                    OutputStream os = resolver.openOutputStream(uri);
+                    if (os != null) {
+                        os.write(data);
+                        os.close();
+                    }
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        values.clear();
+                        values.put(MediaStore.Images.Media.IS_PENDING, 0);
+                        resolver.update(uri, values, null, null);
+                    }
+                    savedCount++;
                 }
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    values.clear();
-                    values.put(MediaStore.Images.Media.IS_PENDING, 0);
-                    resolver.update(uri, values, null, null);
-                }
-                Toast.makeText(this, "已保存到相册 Pictures/PNG伪装 目录", Toast.LENGTH_LONG).show();
-            } else {
-                Toast.makeText(this, "创建相册文件失败", Toast.LENGTH_SHORT).show();
-            }
-        } catch (Exception e) {
-            Toast.makeText(this, "保存失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            } catch (Exception ignored) {}
+        }
+
+        if (savedCount > 0) {
+            Toast.makeText(this, String.format(Locale.CHINA, "已成功保存 %d 张图片到相册 Pictures/PNG伪装 目录", savedCount), Toast.LENGTH_LONG).show();
+        } else {
+            Toast.makeText(this, "保存到相册失败", Toast.LENGTH_SHORT).show();
         }
     }
 
-    private void shareFile(File file, String mimeType) {
-        if (file == null || !file.exists()) {
-            Toast.makeText(this, "文件未就绪", Toast.LENGTH_SHORT).show();
+    private void shareFiles(List<File> files, String mimeType) {
+        if (files == null || files.isEmpty()) {
+            Toast.makeText(this, "文件尚未生成，无法分享", Toast.LENGTH_SHORT).show();
             return;
         }
+
         try {
-            Uri contentUri = AppFileProvider.getUriForFile(this, getPackageName() + ".fileprovider", file);
-            Intent shareIntent = new Intent(Intent.ACTION_SEND);
-            shareIntent.setType(mimeType);
-            shareIntent.putExtra(Intent.EXTRA_STREAM, contentUri);
-            shareIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            startActivity(Intent.createChooser(shareIntent, "发送文件到..."));
+            if (files.size() == 1) {
+                Uri contentUri = AppFileProvider.getUriForFile(this, getPackageName() + ".fileprovider", files.get(0));
+                Intent shareIntent = new Intent(Intent.ACTION_SEND);
+                shareIntent.setType(mimeType);
+                shareIntent.putExtra(Intent.EXTRA_STREAM, contentUri);
+                shareIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                startActivity(Intent.createChooser(shareIntent, "发送文件到..."));
+            } else {
+                ArrayList<Uri> uriList = new ArrayList<>();
+                for (File f : files) {
+                    uriList.add(AppFileProvider.getUriForFile(this, getPackageName() + ".fileprovider", f));
+                }
+                Intent shareIntent = new Intent(Intent.ACTION_SEND_MULTIPLE);
+                shareIntent.setType(mimeType);
+                shareIntent.putParcelableArrayListExtra(Intent.EXTRA_STREAM, uriList);
+                shareIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                startActivity(Intent.createChooser(shareIntent, "批量发送文件到..."));
+            }
         } catch (Exception e) {
             Toast.makeText(this, "分享失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }

@@ -33,7 +33,7 @@
             android:paddingEnd="8dp"
             android:paddingTop="3dp"
             android:paddingBottom="3dp"
-            android:text="移动端"
+            android:text="移动版 v1.1"
             android:textColor="#E0E7FF"
             android:textSize="11sp" />
     </LinearLayout>
@@ -121,7 +121,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="1. 选择要伪装的真实图片"
+                        android:text="1. 选择要伪装的真实图片 (支持多选)"
                         android:textColor="@color/text_main"
                         android:textSize="15sp"
                         android:textStyle="bold" />
@@ -130,7 +130,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="2dp"
-                        android:text="支持 JPG、PNG、WEBP 静态图与 GIF 动图"
+                        android:text="支持单张或批量多选 JPG、PNG、WEBP 静态图与 GIF"
                         android:textColor="@color/text_muted"
                         android:textSize="12sp" />
 
@@ -152,7 +152,7 @@
                             <TextView
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:text="＋ 点击从相册选择图片"
+                                android:text="＋ 点击从相册选择图片 (可多选)"
                                 android:textColor="@color/primary"
                                 android:textSize="15sp"
                                 android:textStyle="bold" />
@@ -162,7 +162,7 @@
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:layout_marginTop="6dp"
-                                android:text="支持静态图与多帧 GIF"
+                                android:text="长按相册可批量勾选多张图片"
                                 android:textColor="@color/text_muted"
                                 android:textSize="12sp" />
                         </LinearLayout>
@@ -280,6 +280,7 @@
                     android:elevation="2dp">
 
                     <TextView
+                        android:id="@+id/tv_disguise_result_title"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="🎉 伪装生成成功 (双重视角预览)"
@@ -368,7 +369,7 @@
                             android:layout_weight="1"
                             android:layout_marginEnd="6dp"
                             android:background="@drawable/btn_primary"
-                            android:text="保存到相册/文件"
+                            android:text="全部保存到相册"
                             android:textColor="#FFFFFF"
                             android:textSize="13sp" />
 
@@ -379,7 +380,7 @@
                             android:layout_weight="1"
                             android:layout_marginStart="6dp"
                             android:background="@drawable/btn_outline"
-                            android:text="发送与分享"
+                            android:text="批量发送分享"
                             android:textColor="@color/primary"
                             android:textSize="13sp" />
                     </LinearLayout>
@@ -405,7 +406,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="选择收到的伪装图片"
+                        android:text="选择收到的伪装图片 (支持多选)"
                         android:textColor="@color/text_main"
                         android:textSize="15sp"
                         android:textStyle="bold" />
@@ -414,7 +415,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="2dp"
-                        android:text="选择保存下来的伪装 .png 文件进行无损提取"
+                        android:text="支持单选或批量选择保存下来的伪装 .png 文件"
                         android:textColor="@color/text_muted"
                         android:textSize="12sp" />
 
@@ -436,16 +437,17 @@
                             <TextView
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:text="＋ 选择伪装图片文件"
+                                android:text="＋ 选择伪装图片文件 (可多选)"
                                 android:textColor="@color/primary"
                                 android:textSize="15sp"
                                 android:textStyle="bold" />
 
                             <TextView
+                                android:id="@+id/tv_restore_file_count_hint"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:layout_marginTop="6dp"
-                                android:text="支持本工具及 ChatChatBar 格式"
+                                android:text="长按可批量勾选多个伪装文件"
                                 android:textColor="@color/text_muted"
                                 android:textSize="12sp" />
                         </LinearLayout>
@@ -492,6 +494,7 @@
                     android:elevation="2dp">
 
                     <TextView
+                        android:id="@+id/tv_restore_result_title"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="✨ 成功提取还原真实图片"
@@ -528,7 +531,7 @@
                             android:layout_weight="1"
                             android:layout_marginEnd="6dp"
                             android:background="@drawable/btn_primary"
-                            android:text="保存到相册/文件"
+                            android:text="全部保存到相册"
                             android:textColor="#FFFFFF"
                             android:textSize="13sp" />
 
@@ -539,7 +542,7 @@
                             android:layout_weight="1"
                             android:layout_marginStart="6dp"
                             android:background="@drawable/btn_outline"
-                            android:text="发送与分享"
+                            android:text="批量发送分享"
                             android:textColor="@color/primary"
                             android:textSize="13sp" />
                     </LinearLayout>
@@ -554,9 +557,54 @@
                 android:orientation="vertical"
                 android:visibility="gone">
 
+                <!-- 开发者与开源项目 (新加栏目) -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:background="@drawable/bg_card"
+                    android:orientation="vertical"
+                    android:padding="16dp"
+                    android:elevation="2dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="👨‍💻 开发者与开源项目"
+                        android:textColor="@color/text_main"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:text="本软件由 Zeraphyms 所制"
+                        android:textColor="@color/primary"
+                        android:textSize="14sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/tv_project_link"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:text="GitHub 仓库: https://github.com/Zeraphyms/PNG-phantom-tank"
+                        android:textColor="@color/accent"
+                        android:textSize="13sp" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="(点击上方链接可在手机浏览器中直接打开)"
+                        android:textColor="@color/text_muted"
+                        android:textSize="11sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
                     android:background="@drawable/bg_card"
                     android:orientation="vertical"
                     android:padding="16dp"
@@ -623,7 +671,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="6dp"
                         android:lineSpacingExtra="4dp"
-                        android:text="• 100% 纯本地离线处理，不包含任何网络请求，图片绝不上载任何外部服务器。\n• 格式与 PC 版 png.exe 及 ChatChatBar 格式无缝双向互通。"
+                        android:text="• 100% 纯本地离线处理，不包含任何网络请求，图片绝不上载任何外部服务器。"
                         android:textColor="@color/text_secondary"
                         android:textSize="13sp" />
                 </LinearLayout>
