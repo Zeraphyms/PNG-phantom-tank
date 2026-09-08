@@ -1,4 +1,4 @@
-# PNG-phantom-tank (PNG伪装工具)
+# APNG-phantom-tank (APNG伪装工具)
 
 移动端 (Android) 用于制作与发送在 QQ 或支持 APNG 格式解码软件的幻影坦克伪装图片工具。
 
