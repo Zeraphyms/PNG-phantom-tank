@@ -12,3 +12,4 @@ local.properties
 # Intermediate extracted folders if any
 png.exe_extracted/
 *.idsig
+*.exe
