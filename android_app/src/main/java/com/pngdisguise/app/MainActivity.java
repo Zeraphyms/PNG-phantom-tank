@@ -359,7 +359,7 @@ public class MainActivity extends Activity {
             tvRestoreInspectInfo.setVisibility(View.VISIBLE);
             if (count == 1) {
                 if (info != null) {
-                    String kindStr = "STATIC".equals(info.meta.kind) ? "静态隐写" : "GIF动图隐写";
+                    String kindStr = "STATIC".equals(info.meta.kind) ? "静态隐写" : ("ANIMATED".equals(info.meta.kind) ? "动图隐写" : "标准隐藏帧");
                     tvRestoreInspectInfo.setText(String.format(Locale.CHINA, "✔ 识别为伪装 APNG (%s, 隐藏%d帧, 尺寸 %dx%d)",
                             kindStr, info.meta.count, info.width, info.height));
                     tvRestoreInspectInfo.setTextColor(getResources().getColor(R.color.success));
@@ -676,3 +676,4 @@ public class MainActivity extends Activity {
         return bos.toByteArray();
     }
 }
+

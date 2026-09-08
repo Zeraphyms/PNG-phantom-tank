@@ -42,7 +42,7 @@ public class ApngCodec {
 
     public static class DisguiseMeta {
         public final int version;
-        public final String kind; // "STATIC" or "ANIMATED"
+        public final String kind; // "STATIC", "ANIMATED", or "GENERIC"
         public final int count;
 
         public DisguiseMeta(int version, String kind, int count) {
@@ -116,7 +116,7 @@ public class ApngCodec {
 
             chunks.write(PNG_SIG);
 
-            // IHDR: width(4), height(4), bitDepth=8(1), colorType=6(1, RGBA), comp=0, filter=0, interlace=0
+            // IHDR
             byte[] ihdr = new byte[13];
             ByteBuffer bbIhdr = ByteBuffer.wrap(ihdr).order(ByteOrder.BIG_ENDIAN);
             bbIhdr.putInt(width);
@@ -128,14 +128,14 @@ public class ApngCodec {
             bbIhdr.put((byte) 0);
             chunks.write(chunkBytes("IHDR".getBytes(StandardCharsets.ISO_8859_1), ihdr));
 
-            // acTL: animation_frames(4), play_count(4)
+            // acTL
             byte[] actl = new byte[8];
             ByteBuffer bbActl = ByteBuffer.wrap(actl).order(ByteOrder.BIG_ENDIAN);
             bbActl.putInt(animationFrames);
             bbActl.putInt(playCount);
             chunks.write(chunkBytes("acTL".getBytes(StandardCharsets.ISO_8859_1), actl));
 
-            // tEXt marker: "ChatBarApngDisguise\0version;kind;count"
+            // tEXt marker
             String markerStr = FORMAT_VERSION + ";" + contentKind + ";" + contentFrameCount;
             byte[] markerKey = MARKER_KEYWORD.getBytes(StandardCharsets.US_ASCII);
             byte[] markerPayload = markerStr.getBytes(StandardCharsets.US_ASCII);
@@ -244,13 +244,16 @@ public class ApngCodec {
         try {
             List<Chunk> chunks = parseChunks(data);
             boolean hasAcTL = false;
+            int fctlCount = 0;
             for (Chunk c : chunks) {
-                if (c.getTypeName().equals("acTL")) {
+                String type = c.getTypeName();
+                if (type.equals("acTL")) {
                     hasAcTL = true;
-                    break;
+                } else if (type.equals("fcTL")) {
+                    fctlCount++;
                 }
             }
-            if (!hasAcTL) return null;
+            if (!hasAcTL || fctlCount == 0) return null;
 
             DisguiseMeta meta = null;
             byte[] markerKeyBytes = MARKER_KEYWORD.getBytes(StandardCharsets.US_ASCII);
@@ -277,7 +280,11 @@ public class ApngCodec {
                     }
                 }
             }
-            if (meta == null) return null;
+
+            // 通用 APNG 隐写兼容模式：如果没有私有 tEXt 标记，只要有 acTL + fcTL，自动作为通用 APNG 隐写识别！
+            if (meta == null) {
+                meta = new DisguiseMeta(1, "GENERIC", fctlCount);
+            }
 
             int width = 0;
             int height = 0;
@@ -296,29 +303,31 @@ public class ApngCodec {
         }
     }
 
-    private static class FrameGroup {
-        byte[] fcTL;
-        List<byte[]> fdatPieces = new ArrayList<>();
+    public static class FrameGroup {
+        public byte[] fcTL;
+        public List<byte[]> fdatPieces = new ArrayList<>();
 
-        FrameGroup(byte[] fcTL) {
+        public FrameGroup(byte[] fcTL) {
             this.fcTL = fcTL;
         }
     }
 
-    private static List<FrameGroup> extractFrameGroups(List<Chunk> chunks) {
+    public static List<FrameGroup> extractFrameGroups(List<Chunk> chunks) {
         List<FrameGroup> groups = new ArrayList<>();
         FrameGroup cur = null;
         for (Chunk c : chunks) {
             String name = c.getTypeName();
             if (name.equals("IDAT")) {
-                // skip default frame IDATs
-                continue;
+                // 如果在第一个 fcTL 之后出现 IDAT（APNG 规范中若第一帧是默认图像），也可以收集
+                if (cur != null) {
+                    cur.fdatPieces.add(c.payload);
+                }
             } else if (name.equals("fcTL")) {
                 cur = new FrameGroup(c.payload);
                 groups.add(cur);
             } else if (name.equals("fdAT")) {
                 if (cur != null && c.payload.length >= 4) {
-                    // strip 4-byte sequence number from fdAT
+                    // 剥离 fdAT 前 4 字节的帧序列号
                     cur.fdatPieces.add(Arrays.copyOfRange(c.payload, 4, c.payload.length));
                 }
             }
@@ -328,14 +337,17 @@ public class ApngCodec {
 
     public static byte[] restoreDisguise(byte[] data) throws CodecException, IOException {
         DisguiseInfo info = inspectDisguise(data);
-        if (info == null || (!"STATIC".equals(info.meta.kind) && !"ANIMATED".equals(info.meta.kind))) {
-            throw new CodecException("不是可还原的伪装 APNG 文件");
+        if (info == null) {
+            throw new CodecException("不是有效的 APNG 动画或伪装图片");
         }
 
         List<Chunk> chunks = info.chunks;
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        out.write(PNG_SIG);
+        List<FrameGroup> frameGroups = extractFrameGroups(chunks);
+        if (frameGroups.isEmpty()) {
+            throw new CodecException("未在文件中找到任何隐藏的动画帧数据");
+        }
 
+        // 提取原 IHDR
         byte[] ihdr = null;
         for (Chunk c : chunks) {
             if (c.getTypeName().equals("IHDR")) {
@@ -346,14 +358,13 @@ public class ApngCodec {
         if (ihdr == null) {
             throw new CodecException("缺少 IHDR 数据块");
         }
-        out.write(chunkBytes("IHDR".getBytes(StandardCharsets.ISO_8859_1), ihdr));
 
-        List<FrameGroup> frameGroups = extractFrameGroups(chunks);
-        if (frameGroups.isEmpty()) {
-            throw new CodecException("伪装文件中未找到隐藏的图像数据帧");
-        }
-
+        // 1. 如果是多帧动画且是专属 ANIMATED 协议
         if ("ANIMATED".equals(info.meta.kind)) {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            out.write(PNG_SIG);
+            out.write(chunkBytes("IHDR".getBytes(StandardCharsets.ISO_8859_1), ihdr));
+
             byte[] acTL = null;
             for (Chunk c : chunks) {
                 if (c.getTypeName().equals("acTL")) {
@@ -364,7 +375,7 @@ public class ApngCodec {
             int playCount = 0;
             if (acTL != null && acTL.length >= 8) {
                 ByteBuffer bb = ByteBuffer.wrap(acTL).order(ByteOrder.BIG_ENDIAN);
-                bb.getInt(0); // ignore original frame count
+                bb.getInt(0);
                 playCount = bb.getInt(4);
             }
             int frameCount = frameGroups.size();
@@ -395,14 +406,37 @@ public class ApngCodec {
             }
             out.write(chunkBytes("IEND".getBytes(StandardCharsets.ISO_8859_1), new byte[0]));
             return out.toByteArray();
-        } else {
-            // STATIC mode
-            FrameGroup firstGroup = frameGroups.get(0);
-            for (byte[] piece : firstGroup.fdatPieces) {
-                out.write(chunkBytes("IDAT".getBytes(StandardCharsets.ISO_8859_1), piece));
-            }
-            out.write(chunkBytes("IEND".getBytes(StandardCharsets.ISO_8859_1), new byte[0]));
-            return out.toByteArray();
         }
+
+        // 2. 静态隐写模式 或 通用 APNG 模式（包括他人缩略图伪装工具生成的 APNG）
+        // 在 APNG 隐写中，第 0 组 frameGroup 即为隐藏的真实图片帧！
+        FrameGroup targetGroup = frameGroups.get(0);
+        if (targetGroup.fdatPieces.isEmpty()) {
+            throw new CodecException("隐藏图像帧数据块为空");
+        }
+
+        // 注意：根据 fcTL 更新 IHDR 中的真实宽度与高度（他人工具可能封面与真图分辨率不一致）
+        byte[] targetIhdr = Arrays.copyOf(ihdr, ihdr.length);
+        if (targetGroup.fcTL != null && targetGroup.fcTL.length >= 12) {
+            ByteBuffer bbFctl = ByteBuffer.wrap(targetGroup.fcTL).order(ByteOrder.BIG_ENDIAN);
+            bbFctl.getInt(0); // sequence_number
+            int realWidth = bbFctl.getInt(4);
+            int realHeight = bbFctl.getInt(8);
+            if (realWidth > 0 && realHeight > 0) {
+                ByteBuffer bbIhdr = ByteBuffer.wrap(targetIhdr).order(ByteOrder.BIG_ENDIAN);
+                bbIhdr.putInt(0, realWidth);
+                bbIhdr.putInt(4, realHeight);
+            }
+        }
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        out.write(PNG_SIG);
+        out.write(chunkBytes("IHDR".getBytes(StandardCharsets.ISO_8859_1), targetIhdr));
+
+        for (byte[] piece : targetGroup.fdatPieces) {
+            out.write(chunkBytes("IDAT".getBytes(StandardCharsets.ISO_8859_1), piece));
+        }
+        out.write(chunkBytes("IEND".getBytes(StandardCharsets.ISO_8859_1), new byte[0]));
+        return out.toByteArray();
     }
 }
