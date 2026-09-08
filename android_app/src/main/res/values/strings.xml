@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">PNG伪装工具</string>
+    <string name="tab_disguise">图片伪装</string>
+    <string name="tab_restore">还原真图</string>
+    <string name="tab_help">使用说明</string>
+</resources>

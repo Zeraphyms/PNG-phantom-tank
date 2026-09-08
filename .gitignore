@@ -1,0 +1,14 @@
+# Toolchain & huge downloads
+build/toolchain/
+*.zip
+*.pyc
+__pycache__/
+
+# Android build outputs
+android_app/build/
+.gradle/
+local.properties
+
+# Intermediate extracted folders if any
+png.exe_extracted/
+*.idsig
