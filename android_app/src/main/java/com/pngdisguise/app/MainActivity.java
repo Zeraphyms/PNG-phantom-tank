@@ -2,11 +2,14 @@ package com.pngdisguise.app;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.Dialog;
 import android.app.ProgressDialog;
 import android.content.ClipData;
 import android.content.ContentResolver;
 import android.content.ContentValues;
+import android.content.DialogInterface;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
@@ -17,20 +20,29 @@ import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.MediaStore;
+import android.view.LayoutInflater;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.Button;
+import android.widget.CheckBox;
+import android.widget.CompoundButton;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.RelativeLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
@@ -41,11 +53,17 @@ public class MainActivity extends Activity {
     private static final int REQ_PICK_CUSTOM_COVER = 1002;
     private static final int REQ_PICK_DISGUISED_IMAGE = 1003;
 
+    private static final String PREF_NAME = "png_disguise_prefs";
+    private static final String KEY_PERSIST_COVER = "persist_cover";
+    private static final String SAVED_COVER_FILENAME = "saved_custom_cover.png";
+
     private TextView tabDisguise;
     private TextView tabRestore;
+    private TextView tabHistory;
     private TextView tabHelp;
     private View pageDisguise;
     private View pageRestore;
+    private View pageHistory;
     private View pageHelp;
 
     // Disguise Views
@@ -56,6 +74,7 @@ public class MainActivity extends Activity {
     private ImageView ivCoverThumb;
     private TextView tvCoverStatus;
     private Button btnChangeCover;
+    private Button btnSaveCover;
     private TextView btnResetCover;
     private Button btnDoDisguise;
     private View cardDisguiseResult;
@@ -79,6 +98,12 @@ public class MainActivity extends Activity {
     private TextView tvRestoreSummary;
     private Button btnSaveRestored;
     private Button btnShareRestored;
+
+    // History Views
+    private TextView tvCacheStat;
+    private Button btnClearAllCache;
+    private View layoutHistoryEmpty;
+    private LinearLayout llHistoryContainer;
 
     // Help View
     private TextView tvProjectLink;
@@ -108,16 +133,18 @@ public class MainActivity extends Activity {
 
         initViews();
         setupTabs();
-        loadDefaultCover();
+        initCoverSettings();
         setupEventListeners();
     }
 
     private void initViews() {
         tabDisguise = (TextView) findViewById(R.id.tab_disguise);
         tabRestore = (TextView) findViewById(R.id.tab_restore);
+        tabHistory = (TextView) findViewById(R.id.tab_history);
         tabHelp = (TextView) findViewById(R.id.tab_help);
         pageDisguise = findViewById(R.id.page_disguise);
         pageRestore = findViewById(R.id.page_restore);
+        pageHistory = findViewById(R.id.page_history);
         pageHelp = findViewById(R.id.page_help);
 
         boxSelectSrc = (RelativeLayout) findViewById(R.id.box_select_src);
@@ -127,6 +154,7 @@ public class MainActivity extends Activity {
         ivCoverThumb = (ImageView) findViewById(R.id.iv_cover_thumb);
         tvCoverStatus = (TextView) findViewById(R.id.tv_cover_status);
         btnChangeCover = (Button) findViewById(R.id.btn_change_cover);
+        btnSaveCover = (Button) findViewById(R.id.btn_save_cover);
         btnResetCover = (TextView) findViewById(R.id.btn_reset_cover);
         btnDoDisguise = (Button) findViewById(R.id.btn_do_disguise);
         cardDisguiseResult = findViewById(R.id.card_disguise_result);
@@ -150,6 +178,11 @@ public class MainActivity extends Activity {
         btnSaveRestored = (Button) findViewById(R.id.btn_save_restored);
         btnShareRestored = (Button) findViewById(R.id.btn_share_restored);
 
+        tvCacheStat = (TextView) findViewById(R.id.tv_cache_stat);
+        btnClearAllCache = (Button) findViewById(R.id.btn_clear_all_cache);
+        layoutHistoryEmpty = findViewById(R.id.layout_history_empty);
+        llHistoryContainer = (LinearLayout) findViewById(R.id.ll_history_container);
+
         tvProjectLink = (TextView) findViewById(R.id.tv_project_link);
     }
 
@@ -160,19 +193,28 @@ public class MainActivity extends Activity {
         tabRestore.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) { switchTab(1); }
         });
-        tabHelp.setOnClickListener(new View.OnClickListener() {
+        tabHistory.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) { switchTab(2); }
+        });
+        tabHelp.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { switchTab(3); }
         });
     }
 
     private void switchTab(int index) {
         pageDisguise.setVisibility(index == 0 ? View.VISIBLE : View.GONE);
         pageRestore.setVisibility(index == 1 ? View.VISIBLE : View.GONE);
-        pageHelp.setVisibility(index == 2 ? View.VISIBLE : View.GONE);
+        pageHistory.setVisibility(index == 2 ? View.VISIBLE : View.GONE);
+        pageHelp.setVisibility(index == 3 ? View.VISIBLE : View.GONE);
 
         updateTabStyle(tabDisguise, index == 0);
         updateTabStyle(tabRestore, index == 1);
-        updateTabStyle(tabHelp, index == 2);
+        updateTabStyle(tabHistory, index == 2);
+        updateTabStyle(tabHelp, index == 3);
+
+        if (index == 2) {
+            refreshHistoryList();
+        }
     }
 
     private void updateTabStyle(TextView tab, boolean active) {
@@ -183,6 +225,43 @@ public class MainActivity extends Activity {
             tab.setBackground(null);
             tab.setTextColor(getResources().getColor(R.color.text_secondary));
         }
+    }
+
+    private void initCoverSettings() {
+        defaultCoverBitmap = ImageProcessor.getDefaultCover(this);
+
+        SharedPreferences sp = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
+        boolean shouldPersist = sp.getBoolean(KEY_PERSIST_COVER, false);
+
+        if (shouldPersist) {
+            File savedCoverFile = new File(getFilesDir(), SAVED_COVER_FILENAME);
+            if (savedCoverFile.exists()) {
+                try {
+                    Bitmap savedBm = BitmapFactory.decodeFile(savedCoverFile.getAbsolutePath());
+                    if (savedBm != null) {
+                        customCoverBitmap = savedBm;
+                        ivCoverThumb.setImageBitmap(savedBm);
+                        tvCoverStatus.setText(String.format(Locale.CHINA, "自定义封面 [已持久保存]: %dx%d", savedBm.getWidth(), savedBm.getHeight()));
+                        return;
+                    }
+                } catch (Exception ignored) {}
+            }
+        }
+
+        if (defaultCoverBitmap != null) {
+            ivCoverThumb.setImageBitmap(defaultCoverBitmap);
+        }
+        tvCoverStatus.setText("内置官方经典蓝色封面 (默认)");
+    }
+
+    private void saveCustomCoverToFile(Bitmap bm) {
+        try {
+            File savedCoverFile = new File(getFilesDir(), SAVED_COVER_FILENAME);
+            FileOutputStream fos = new FileOutputStream(savedCoverFile);
+            bm.compress(Bitmap.CompressFormat.PNG, 100, fos);
+            fos.flush();
+            fos.close();
+        } catch (Exception ignored) {}
     }
 
     private void loadDefaultCover() {
@@ -208,8 +287,28 @@ public class MainActivity extends Activity {
             public void onClick(View v) {
                 customCoverBitmap = null;
                 ivCoverThumb.setImageBitmap(defaultCoverBitmap);
-                tvCoverStatus.setText("内置官方经典蓝色封面");
-                Toast.makeText(MainActivity.this, "已恢复为默认封面", Toast.LENGTH_SHORT).show();
+                tvCoverStatus.setText("内置官方经典蓝色封面 (默认)");
+                SharedPreferences sp = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
+                sp.edit().putBoolean(KEY_PERSIST_COVER, false).apply();
+                File savedCoverFile = new File(getFilesDir(), SAVED_COVER_FILENAME);
+                if (savedCoverFile.exists()) {
+                    savedCoverFile.delete();
+                }
+                Toast.makeText(MainActivity.this, "已恢复并保存为官方默认封面", Toast.LENGTH_SHORT).show();
+            }
+        });
+
+        btnSaveCover.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                if (customCoverBitmap == null) {
+                    Toast.makeText(MainActivity.this, "当前为官方默认封面，无需重复保存", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                saveCustomCoverToFile(customCoverBitmap);
+                SharedPreferences sp = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
+                sp.edit().putBoolean(KEY_PERSIST_COVER, true).apply();
+                tvCoverStatus.setText(String.format(Locale.CHINA, "自定义封面 [已持久保存]: %dx%d", customCoverBitmap.getWidth(), customCoverBitmap.getHeight()));
+                Toast.makeText(MainActivity.this, "已永久保存当前封面配置，重启后依然生效！", Toast.LENGTH_SHORT).show();
             }
         });
 
@@ -233,6 +332,12 @@ public class MainActivity extends Activity {
         btnSaveRestored.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) { saveRestoredToGallery(); }
         });
+                btnClearAllCache.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                confirmClearAllCache();
+            }
+        });
+
         btnShareRestored.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) { shareFiles(lastRestoredFileList, "image/png"); }
         });
@@ -331,8 +436,8 @@ public class MainActivity extends Activity {
             if (bm != null) {
                 customCoverBitmap = bm;
                 ivCoverThumb.setImageBitmap(bm);
-                tvCoverStatus.setText(String.format(Locale.CHINA, "自定义封面: %dx%d", bm.getWidth(), bm.getHeight()));
-                Toast.makeText(this, "已设置自定义封面", Toast.LENGTH_SHORT).show();
+                tvCoverStatus.setText(String.format(Locale.CHINA, "自定义封面 [单次更改未保存]: %dx%d", bm.getWidth(), bm.getHeight()));
+                Toast.makeText(this, "已更换封面（单次有效，如需重启依然生效请点击「保存当前封面」）", Toast.LENGTH_LONG).show();
             }
         } catch (Exception e) {
             Toast.makeText(this, "读取封面图片失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
@@ -425,7 +530,8 @@ public class MainActivity extends Activity {
                         lastDisguisedBytesList.add(result);
 
                         String fileName = String.format(Locale.CHINA, "%03d_disguised_%s.png", currentIdx, timeBase);
-                        File outFile = new File(cacheDir, fileName);
+                        File historyDir = getHistoryStorageDir();
+                        File outFile = new File(historyDir, fileName);
                         FileOutputStream fos = new FileOutputStream(outFile);
                         fos.write(result);
                         fos.close();
@@ -521,7 +627,8 @@ public class MainActivity extends Activity {
                         successCount++;
 
                         String fileName = String.format(Locale.CHINA, "%03d_restored_%s.png", currentIdx, timeBase);
-                        File outFile = new File(cacheDir, fileName);
+                        File historyDir = getHistoryStorageDir();
+                        File outFile = new File(historyDir, fileName);
                         FileOutputStream fos = new FileOutputStream(outFile);
                         fos.write(restored);
                         fos.close();
@@ -662,6 +769,278 @@ public class MainActivity extends Activity {
         }
     }
 
+    private File getHistoryStorageDir() {
+        File baseDir = getExternalFilesDir(Environment.DIRECTORY_PICTURES);
+        if (baseDir == null) baseDir = getFilesDir();
+        File historyDir = new File(baseDir, "history");
+        if (!historyDir.exists()) {
+            historyDir.mkdirs();
+        }
+        return historyDir;
+    }
+
+    private void saveSingleFileToGallery(File file) {
+        try {
+            byte[] data = readFileToBytes(file);
+            ContentValues values = new ContentValues();
+            values.put(MediaStore.Images.Media.DISPLAY_NAME, file.getName());
+            values.put(MediaStore.Images.Media.MIME_TYPE, "image/png");
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                values.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/PNG伪装");
+                values.put(MediaStore.Images.Media.IS_PENDING, 1);
+            }
+
+            ContentResolver resolver = getContentResolver();
+            Uri uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+            if (uri != null) {
+                OutputStream os = resolver.openOutputStream(uri);
+                if (os != null) {
+                    os.write(data);
+                    os.close();
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    values.clear();
+                    values.put(MediaStore.Images.Media.IS_PENDING, 0);
+                    resolver.update(uri, values, null, null);
+                }
+                Toast.makeText(this, "已保存到相册 Pictures/PNG伪装", Toast.LENGTH_SHORT).show();
+            }
+        } catch (Exception e) {
+            Toast.makeText(this, "保存到相册失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private List<File> getAllCachedFiles() {
+        List<File> list = new ArrayList<>();
+        File historyDir = getHistoryStorageDir();
+        if (historyDir.exists() && historyDir.isDirectory()) {
+            File[] files = historyDir.listFiles();
+            if (files != null) {
+                list.addAll(Arrays.asList(files));
+            }
+        }
+        File baseDir = getExternalFilesDir(Environment.DIRECTORY_PICTURES);
+        if (baseDir != null && baseDir.exists() && baseDir.isDirectory()) {
+            File[] oldFiles = baseDir.listFiles();
+            if (oldFiles != null) {
+                for (File f : oldFiles) {
+                    if (f.isFile() && f.getName().endsWith(".png") && (f.getName().contains("disguised") || f.getName().contains("restored"))) {
+                        list.add(f);
+                    }
+                }
+            }
+        }
+        Collections.sort(list, new Comparator<File>() {
+            @Override
+            public int compare(File f1, File f2) {
+                return Long.compare(f2.lastModified(), f1.lastModified());
+            }
+        });
+        return list;
+    }
+
+    private void refreshHistoryList() {
+        List<File> files = getAllCachedFiles();
+        long totalSize = 0;
+        for (File f : files) {
+            totalSize += f.length();
+        }
+
+        if (files.isEmpty()) {
+            tvCacheStat.setText("当前暂无本地图片缓存 (0 B)");
+            layoutHistoryEmpty.setVisibility(View.VISIBLE);
+            llHistoryContainer.removeAllViews();
+            return;
+        }
+
+        layoutHistoryEmpty.setVisibility(View.GONE);
+        String sizeStr = formatFileSize(totalSize);
+        tvCacheStat.setText(String.format(Locale.CHINA, "已缓存 %d 个历史文件 (共占用 %s 存储空间)", files.size(), sizeStr));
+
+        llHistoryContainer.removeAllViews();
+        LayoutInflater inflater = LayoutInflater.from(this);
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.CHINA);
+
+        for (final File file : files) {
+            View itemView = inflater.inflate(R.layout.item_history, llHistoryContainer, false);
+            ImageView ivThumb = (ImageView) itemView.findViewById(R.id.iv_history_thumb);
+            TextView tvTag = (TextView) itemView.findViewById(R.id.tv_history_tag);
+            TextView tvTitle = (TextView) itemView.findViewById(R.id.tv_history_title);
+            TextView tvMeta = (TextView) itemView.findViewById(R.id.tv_history_meta);
+
+            TextView btnPreview = (TextView) itemView.findViewById(R.id.btn_history_preview);
+            TextView btnShare = (TextView) itemView.findViewById(R.id.btn_history_share);
+            TextView btnSave = (TextView) itemView.findViewById(R.id.btn_history_save);
+            TextView btnDelete = (TextView) itemView.findViewById(R.id.btn_history_delete);
+
+            final boolean isDisguise = file.getName().contains("disguised");
+            if (isDisguise) {
+                tvTag.setText("伪装图");
+                tvTag.setBackgroundResource(R.drawable.bg_badge_disguised);
+                tvTag.setTextColor(getResources().getColor(R.color.primary));
+            } else {
+                tvTag.setText("还原真图");
+                tvTag.setBackgroundResource(R.drawable.bg_badge_restored);
+                tvTag.setTextColor(Color.parseColor("#059669"));
+            }
+
+            tvTitle.setText(file.getName());
+            String dateStr = sdf.format(new Date(file.lastModified()));
+            tvMeta.setText(String.format(Locale.CHINA, "大小: %s | 时间: %s", formatFileSize(file.length()), dateStr));
+
+            loadThumbnailAsync(file, ivThumb);
+
+            btnPreview.setOnClickListener(new View.OnClickListener() {
+                public void onClick(View v) {
+                    showPreviewDialog(file);
+                }
+            });
+
+            btnShare.setOnClickListener(new View.OnClickListener() {
+                public void onClick(View v) {
+                    List<File> singleList = new ArrayList<>();
+                    singleList.add(file);
+                    shareFiles(singleList, "image/png");
+                }
+            });
+
+            btnSave.setOnClickListener(new View.OnClickListener() {
+                public void onClick(View v) {
+                    saveSingleFileToGallery(file);
+                }
+            });
+
+            btnDelete.setOnClickListener(new View.OnClickListener() {
+                public void onClick(View v) {
+                    new AlertDialog.Builder(MainActivity.this)
+                            .setTitle("删除记录")
+                            .setMessage("确定要删除此条缓存记录吗？\n" + file.getName())
+                            .setPositiveButton("确定", new DialogInterface.OnClickListener() {
+                                public void onClick(DialogInterface dialog, int which) {
+                                    file.delete();
+                                    Toast.makeText(MainActivity.this, "已删除该条记录", Toast.LENGTH_SHORT).show();
+                                    refreshHistoryList();
+                                }
+                            })
+                            .setNegativeButton("取消", null)
+                            .show();
+                }
+            });
+
+            llHistoryContainer.addView(itemView);
+        }
+    }
+
+    private void loadThumbnailAsync(final File file, final ImageView iv) {
+        new Thread(new Runnable() {
+            public void run() {
+                try {
+                    BitmapFactory.Options opts = new BitmapFactory.Options();
+                    opts.inJustDecodeBounds = true;
+                    BitmapFactory.decodeFile(file.getAbsolutePath(), opts);
+
+                    int reqW = 120, reqH = 120;
+                    int inSampleSize = 1;
+                    if (opts.outHeight > reqH || opts.outWidth > reqW) {
+                        int halfH = opts.outHeight / 2;
+                        int halfW = opts.outWidth / 2;
+                        while ((halfH / inSampleSize) >= reqH && (halfW / inSampleSize) >= reqW) {
+                            inSampleSize *= 2;
+                        }
+                    }
+                    opts.inSampleSize = inSampleSize;
+                    opts.inJustDecodeBounds = false;
+                    final Bitmap thumb = BitmapFactory.decodeFile(file.getAbsolutePath(), opts);
+
+                    if (thumb != null) {
+                        mainHandler.post(new Runnable() {
+                            public void run() {
+                                iv.setImageBitmap(thumb);
+                            }
+                        });
+                    }
+                } catch (Exception ignored) {}
+            }
+        }).start();
+    }
+
+    private void showPreviewDialog(File file) {
+        try {
+            Dialog dialog = new Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
+            ImageView imageView = new ImageView(this);
+            imageView.setLayoutParams(new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            imageView.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            imageView.setBackgroundColor(Color.BLACK);
+
+            Bitmap bm = BitmapFactory.decodeFile(file.getAbsolutePath());
+            if (bm != null) {
+                imageView.setImageBitmap(bm);
+            } else {
+                Toast.makeText(this, "图片解析失败", Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            imageView.setOnClickListener(new View.OnClickListener() {
+                public void onClick(View v) {
+                    dialog.dismiss();
+                }
+            });
+
+            dialog.setContentView(imageView);
+            dialog.show();
+        } catch (Exception e) {
+            Toast.makeText(this, "打开大图预览失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void confirmClearAllCache() {
+        final List<File> files = getAllCachedFiles();
+        if (files.isEmpty()) {
+            Toast.makeText(this, "当前无任何缓存文件需要清理", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle("⚠️ 清理全部历史缓存")
+                .setMessage(String.format(Locale.CHINA, "确定要清理全部 %d 个历史文件缓存吗？\n\n注意：清理后将彻底释放本地缓存空间。如果需要保留图片，请先点击「存入相册」。", files.size()))
+                .setPositiveButton("立即清空", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface dialog, int which) {
+                        int deleted = 0;
+                        for (File f : files) {
+                            if (f.delete()) deleted++;
+                        }
+                        lastDisguisedFileList.clear();
+                        lastDisguisedBytesList.clear();
+                        lastRestoredFileList.clear();
+                        lastRestoredBytesList.clear();
+                        refreshHistoryList();
+                        Toast.makeText(MainActivity.this, String.format(Locale.CHINA, "已成功清除 %d 个历史缓存文件！", deleted), Toast.LENGTH_LONG).show();
+                    }
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private String formatFileSize(long bytes) {
+        if (bytes < 1024) return bytes + " B";
+        int exp = (int) (Math.log(bytes) / Math.log(1024));
+        char pre = "KMGTPE".charAt(exp - 1);
+        return String.format(Locale.CHINA, "%.1f %cB", bytes / Math.pow(1024, exp), pre);
+    }
+
+    private byte[] readFileToBytes(File file) throws Exception {
+        FileInputStream fis = new FileInputStream(file);
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        byte[] buf = new byte[8192];
+        int len;
+        while ((len = fis.read(buf)) != -1) {
+            bos.write(buf, 0, len);
+        }
+        bos.close();
+        fis.close();
+        return bos.toByteArray();
+    }
+
     private byte[] readUriBytes(Uri uri) throws Exception {
         InputStream is = getContentResolver().openInputStream(uri);
         if (is == null) throw new Exception("无法打开输入流");
@@ -676,4 +1055,3 @@ public class MainActivity extends Activity {
         return bos.toByteArray();
     }
 }
-

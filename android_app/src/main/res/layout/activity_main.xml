@@ -33,7 +33,7 @@
             android:paddingEnd="8dp"
             android:paddingTop="3dp"
             android:paddingBottom="3dp"
-            android:text="移动版 v1.2"
+            android:text="移动版 v1.3.0"
             android:textColor="#E0E7FF"
             android:textSize="11sp" />
     </LinearLayout>
@@ -74,7 +74,18 @@
                 android:textSize="14sp"
                 android:textStyle="bold" />
 
-            <TextView
+                        <TextView
+                android:id="@+id/tab_history"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:text="历史记录"
+                android:textColor="@color/text_secondary"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+<TextView
                 android:id="@+id/tab_help"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
@@ -240,17 +251,36 @@
                                 android:textColor="@color/text_secondary"
                                 android:textSize="13sp" />
 
-                            <Button
-                                android:id="@+id/btn_change_cover"
+                            <LinearLayout
                                 android:layout_width="wrap_content"
-                                android:layout_height="36dp"
+                                android:layout_height="wrap_content"
                                 android:layout_marginTop="8dp"
-                                android:background="@drawable/btn_outline"
-                                android:text="更换自定义封面"
-                                android:textColor="@color/primary"
-                                android:textSize="12sp"
-                                android:paddingStart="14dp"
-                                android:paddingEnd="14dp" />
+                                android:gravity="center_vertical"
+                                android:orientation="horizontal">
+
+                                <Button
+                                    android:id="@+id/btn_change_cover"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="36dp"
+                                    android:background="@drawable/btn_outline"
+                                    android:text="更换自定义封面"
+                                    android:textColor="@color/primary"
+                                    android:textSize="12sp"
+                                    android:paddingStart="14dp"
+                                    android:paddingEnd="14dp" />
+
+                                <Button
+                                    android:id="@+id/btn_save_cover"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="36dp"
+                                    android:layout_marginStart="8dp"
+                                    android:background="@drawable/btn_outline"
+                                    android:text="💾 保存当前封面"
+                                    android:textColor="@color/primary"
+                                    android:textSize="12sp"
+                                    android:paddingStart="12dp"
+                                    android:paddingEnd="12dp" />
+                            </LinearLayout>
                         </LinearLayout>
                     </LinearLayout>
                 </LinearLayout>
@@ -550,7 +580,128 @@
             </LinearLayout>
 
             <!-- PAGE 3: 使用说明 -->
+                        <!-- PAGE 3: 历史记录与缓存管理 -->
             <LinearLayout
+                android:id="@+id/page_history"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <!-- 缓存统计与清空卡片 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/bg_card"
+                    android:orientation="vertical"
+                    android:padding="16dp"
+                    android:elevation="2dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="📁 本地缓存与记录管理"
+                                android:textColor="@color/text_main"
+                                android:textSize="15sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:id="@+id/tv_cache_stat"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="4dp"
+                                android:text="已缓存 0 个历史文件 (共占用 0 B)"
+                                android:textColor="@color/text_secondary"
+                                android:textSize="12sp" />
+                        </LinearLayout>
+
+                        <Button
+                            android:id="@+id/btn_clear_all_cache"
+                            android:layout_width="wrap_content"
+                            android:layout_height="36dp"
+                            android:background="@drawable/btn_danger_outline"
+                            android:text="🗑️ 清空所有缓存"
+                            android:textColor="@color/danger"
+                            android:textSize="12sp"
+                            android:paddingStart="12dp"
+                            android:paddingEnd="12dp" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="说明：伪装与还原生成的图片均保存在专属缓存中，在此可随时查阅、存入相册或彻底清理释放手机空间。"
+                        android:textColor="@color/text_muted"
+                        android:textSize="11sp" />
+                </LinearLayout>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:layout_marginBottom="8dp"
+                    android:text="历史生成 / 还原明细"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
+                <!-- 空状态展示 -->
+                <LinearLayout
+                    android:id="@+id/layout_history_empty"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/bg_card"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:padding="36dp"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="🍃"
+                        android:textSize="36sp" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="暂无任何伪装或还原历史记录"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="14sp" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="每次伪装成功或还原出的图片都会自动沉淀在这里"
+                        android:textColor="@color/text_muted"
+                        android:textSize="12sp" />
+                </LinearLayout>
+
+                <!-- 历史项目动态挂载容器 -->
+                <LinearLayout
+                    android:id="@+id/ll_history_container"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical" />
+
+            </LinearLayout>
+
+<LinearLayout
                 android:id="@+id/page_help"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -679,5 +830,3 @@
         </FrameLayout>
     </ScrollView>
 </LinearLayout>
-
-
