@@ -2,6 +2,7 @@ package com.pngdisguise.app;
 
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
+import android.graphics.Color;
 import android.graphics.Paint;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -14,7 +15,7 @@ public class AnimatedGifEncoder {
     protected int transparent = -1;
     protected int transIndex;
     protected int repeat = -1;
-    protected int delay = 0; // 默认延迟 (百毫秒,即 10 = 100ms)
+    protected int delay = 0;
     protected boolean started = false;
     protected ByteArrayOutputStream out;
     protected Bitmap image;
@@ -32,11 +33,18 @@ public class AnimatedGifEncoder {
 
     public void setDelay(int ms) {
         delay = Math.round(ms / 10.0f);
+        if (delay < 1) delay = 1;
     }
 
     public void setRepeat(int loopCount) {
         if (loopCount >= 0) {
             repeat = loopCount;
+        }
+    }
+
+    public void setDispose(int code) {
+        if (code >= 0) {
+            dispose = code;
         }
     }
 
@@ -134,12 +142,6 @@ public class AnimatedGifEncoder {
         indexedPixels = new byte[nPix];
         NeuQuant nq = new NeuQuant(pixels, len, sample);
         colorTab = nq.process();
-        for (int i = 0; i < colorTab.length; i += 3) {
-            byte temp = colorTab[i];
-            colorTab[i] = colorTab[i + 2];
-            colorTab[i + 2] = temp;
-            usedEntry[i / 3] = false;
-        }
         int k = 0;
         for (int i = 0; i < nPix; i++) {
             int index = nq.map(pixels[k++] & 0xff, pixels[k++] & 0xff, pixels[k++] & 0xff);
@@ -155,10 +157,22 @@ public class AnimatedGifEncoder {
         out.write(0x21); // extension introducer
         out.write(0xf9); // GCE
         out.write(4);    // data size
-        out.write(0);    // packed fields
-        writeShort(delay); // delay time
-        out.write(0);    // transparent color index
-        out.write(0);    // block terminator
+        int packed;
+        int transp;
+        if (transparent == -1) {
+            packed = 0;
+            transp = 0;
+        } else {
+            packed = 1;
+            transp = 1;
+        }
+        if (dispose >= 0) {
+            packed |= (dispose & 7) << 2;
+        }
+        out.write(packed);
+        writeShort(delay);
+        out.write(transIndex);
+        out.write(0);
     }
 
     protected void writeImageDesc() throws IOException {
@@ -167,15 +181,19 @@ public class AnimatedGifEncoder {
         writeShort(0);   // image top
         writeShort(width);
         writeShort(height);
-        out.write(0);    // no local color table
+        if (firstFrame) {
+            out.write(0); // no local color table on first frame
+        } else {
+            out.write(0x80 | 0x07); // local color table
+        }
     }
 
     protected void writeLSD() throws IOException {
         writeShort(width);
         writeShort(height);
-        out.write((0x80 | (7 << 4) | (0 << 3) | 7)); // packed
-        out.write(0);
-        out.write(0);
+        out.write((0x80 | (7 << 4) | (0 << 3) | 7)); // global color table flag
+        out.write(0); // background color index
+        out.write(0); // pixel aspect ratio
     }
 
     protected void writeNetscapeExt() throws IOException {
@@ -213,7 +231,6 @@ public class AnimatedGifEncoder {
         }
     }
 
-    // NeuQuant and LZW algorithms
     static class NeuQuant {
         protected static final int netsize = 256;
         protected static final int prime1 = 499;
@@ -274,9 +291,9 @@ public class AnimatedGifEncoder {
             int k = 0;
             for (int i = 0; i < netsize; i++) {
                 int j = index[i];
-                map[k++] = (byte) (network[j][0] >> netbiasshift);
-                map[k++] = (byte) (network[j][1] >> netbiasshift);
-                map[k++] = (byte) (network[j][2] >> netbiasshift);
+                map[k++] = (byte) (network[j][0]);
+                map[k++] = (byte) (network[j][1]);
+                map[k++] = (byte) (network[j][2]);
             }
             return map;
         }
@@ -343,12 +360,12 @@ public class AnimatedGifEncoder {
             }
             i = 0;
             while (i < samplepixels) {
-                int b = (p[pix + 0] & 0xff) << netbiasshift;
+                int r = (p[pix + 0] & 0xff) << netbiasshift;
                 int g = (p[pix + 1] & 0xff) << netbiasshift;
-                int r = (p[pix + 2] & 0xff) << netbiasshift;
-                int j = contest(b, g, r);
-                altersingle(alpha, j, b, g, r);
-                if (rad != 0) alterneigh(rad, j, b, g, r);
+                int b = (p[pix + 2] & 0xff) << netbiasshift;
+                int j = contest(r, g, b);
+                altersingle(alpha, j, r, g, b);
+                if (rad != 0) alterneigh(rad, j, r, g, b);
                 pix += step;
                 if (pix >= lim) pix -= lengthcount;
                 i++;
@@ -364,7 +381,7 @@ public class AnimatedGifEncoder {
             }
         }
 
-        public int map(int b, int g, int r) {
+        public int map(int r, int g, int b) {
             int bestd = 1000;
             int best = -1;
             int i = netindex[g];
@@ -377,10 +394,10 @@ public class AnimatedGifEncoder {
                     else {
                         i++;
                         if (dist < 0) dist = -dist;
-                        int a = p[0] - b; if (a < 0) a = -a;
+                        int a = p[0] - r; if (a < 0) a = -a;
                         dist += a;
                         if (dist < bestd) {
-                            a = p[2] - r; if (a < 0) a = -a;
+                            a = p[2] - b; if (a < 0) a = -a;
                             dist += a;
                             if (dist < bestd) {
                                 bestd = dist;
@@ -396,10 +413,10 @@ public class AnimatedGifEncoder {
                     else {
                         j--;
                         if (dist < 0) dist = -dist;
-                        int a = p[0] - b; if (a < 0) a = -a;
+                        int a = p[0] - r; if (a < 0) a = -a;
                         dist += a;
                         if (dist < bestd) {
-                            a = p[2] - r; if (a < 0) a = -a;
+                            a = p[2] - b; if (a < 0) a = -a;
                             dist += a;
                             if (dist < bestd) {
                                 bestd = dist;
@@ -428,13 +445,13 @@ public class AnimatedGifEncoder {
             }
         }
 
-        protected void altersingle(int alpha, int i, int b, int g, int r) {
-            network[i][0] -= (alpha * (network[i][0] - b)) / initalpha;
+        protected void altersingle(int alpha, int i, int r, int g, int b) {
+            network[i][0] -= (alpha * (network[i][0] - r)) / initalpha;
             network[i][1] -= (alpha * (network[i][1] - g)) / initalpha;
-            network[i][2] -= (alpha * (network[i][2] - r)) / initalpha;
+            network[i][2] -= (alpha * (network[i][2] - b)) / initalpha;
         }
 
-        protected void alterneigh(int rad, int i, int b, int g, int r) {
+        protected void alterneigh(int rad, int i, int r, int g, int b) {
             int lo = i - rad; if (lo < -1) lo = -1;
             int hi = i + rad; if (hi > netsize) hi = netsize;
             int j = i + 1;
@@ -444,30 +461,30 @@ public class AnimatedGifEncoder {
                 int a = radpower[m++];
                 if (j < hi) {
                     int[] p = network[j++];
-                    p[0] -= (a * (p[0] - b)) / alpharadbias;
+                    p[0] -= (a * (p[0] - r)) / alpharadbias;
                     p[1] -= (a * (p[1] - g)) / alpharadbias;
-                    p[2] -= (a * (p[2] - r)) / alpharadbias;
+                    p[2] -= (a * (p[2] - b)) / alpharadbias;
                 }
                 if (k > lo) {
                     int[] p = network[k--];
-                    p[0] -= (a * (p[0] - b)) / alpharadbias;
+                    p[0] -= (a * (p[0] - r)) / alpharadbias;
                     p[1] -= (a * (p[1] - g)) / alpharadbias;
-                    p[2] -= (a * (p[2] - r)) / alpharadbias;
+                    p[2] -= (a * (p[2] - b)) / alpharadbias;
                 }
             }
         }
 
-        protected int contest(int b, int g, int r) {
+        protected int contest(int r, int g, int b) {
             int bestd = ~(((int) 1) << 31);
             int bestbiasd = bestd;
             int bestpos = -1;
             int bestbiaspos = bestpos;
             for (int i = 0; i < netsize; i++) {
                 int[] n = network[i];
-                int dist = n[0] - b; if (dist < 0) dist = -dist;
+                int dist = n[0] - r; if (dist < 0) dist = -dist;
                 int a = n[1] - g; if (a < 0) a = -a;
                 dist += a;
-                a = n[2] - r; if (a < 0) a = -a;
+                a = n[2] - b; if (a < 0) a = -a;
                 dist += a;
                 if (dist < bestd) {
                     bestd = dist;
@@ -488,7 +505,7 @@ public class AnimatedGifEncoder {
         }
     }
 
-    static class LzwEncoder {
+    public static class LzwEncoder {
         private static final int EOF = -1;
         private int imgW, imgH;
         private byte[] pixAry;
@@ -516,7 +533,7 @@ public class AnimatedGifEncoder {
         int a_count;
         byte[] accum = new byte[256];
 
-        LzwEncoder(int width, int height, byte[] pixels, int color_depth) {
+        public LzwEncoder(int width, int height, byte[] pixels, int color_depth) {
             imgW = width;
             imgH = height;
             pixAry = pixels;
@@ -596,7 +613,7 @@ public class AnimatedGifEncoder {
             output(EOFCode, outs);
         }
 
-        void encode(OutputStream os) throws IOException {
+        public void encode(OutputStream os) throws IOException {
             os.write(initCodeSize);
             remaining = imgW * imgH;
             curPixel = 0;
@@ -606,8 +623,8 @@ public class AnimatedGifEncoder {
 
         void flush_char(OutputStream outs) throws IOException {
             if (a_count > 0) {
-                outs.write(a_count);
-                outs.write(accum, 0, a_count);
+                outs.write(a_count); // 写入本 sub-block 实际长度 (1..254)
+                outs.write(accum, 0, a_count); // 写入本 sub-block 数据
                 a_count = 0;
             }
         }

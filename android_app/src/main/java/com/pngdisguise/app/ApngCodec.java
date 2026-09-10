@@ -375,37 +375,43 @@ public class ApngCodec {
     }
 
     public static byte[] framesToGif(byte[] ihdr, List<FrameGroup> frameGroups, int loopCount) throws Exception {
-        ByteBuffer bbIhdr = ByteBuffer.wrap(ihdr).order(ByteOrder.BIG_ENDIAN);
-        int fullW = bbIhdr.getInt(0);
-        int fullH = bbIhdr.getInt(4);
+        if (frameGroups.isEmpty()) return null;
+
+        // 获取第0帧实际尺寸以确定最终输出画布大小
+        FrameGroup firstGroup = frameGroups.get(0);
+        byte[] firstPng = frameGroupToPng(ihdr, firstGroup);
+        Bitmap firstBm = BitmapFactory.decodeByteArray(firstPng, 0, firstPng.length);
+        if (firstBm == null) return null;
+
+        int fullW = firstBm.getWidth();
+        int fullH = firstBm.getHeight();
 
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
         AnimatedGifEncoder encoder = new AnimatedGifEncoder();
         encoder.setRepeat(loopCount);
         encoder.start(bos);
 
-        Bitmap canvasBitmap = Bitmap.createBitmap(fullW, fullH, Bitmap.Config.ARGB_8888);
-        Canvas canvas = new Canvas(canvasBitmap);
-        Paint paint = new Paint();
-
         for (int i = 0; i < frameGroups.size(); i++) {
             FrameGroup group = frameGroups.get(i);
-            byte[] pngBytes = frameGroupToPng(ihdr, group);
-            Bitmap frameBm = BitmapFactory.decodeByteArray(pngBytes, 0, pngBytes.length);
+            byte[] pngBytes = (i == 0) ? firstPng : frameGroupToPng(ihdr, group);
+            Bitmap frameBm = (i == 0) ? firstBm : BitmapFactory.decodeByteArray(pngBytes, 0, pngBytes.length);
             if (frameBm == null) continue;
+
+            // 过滤掉只有 1x1 像素的心跳保活尾帧
+            if (frameBm.getWidth() <= 2 && frameBm.getHeight() <= 2 && i == frameGroups.size() - 1) {
+                continue;
+            }
 
             int delayNum = 10;
             int delayDen = 100;
-            int xOffset = 0;
-            int yOffset = 0;
 
             if (group.fcTL != null && group.fcTL.length >= 26) {
                 ByteBuffer bb = ByteBuffer.wrap(group.fcTL).order(ByteOrder.BIG_ENDIAN);
                 bb.getInt(0); // seq
                 bb.getInt(4); // w
                 bb.getInt(8); // h
-                xOffset = bb.getInt(12);
-                yOffset = bb.getInt(16);
+                bb.getInt(12); // xOffset
+                bb.getInt(16); // yOffset
                 delayNum = bb.getShort(20) & 0xFFFF;
                 delayDen = bb.getShort(22) & 0xFFFF;
             }
@@ -415,11 +421,18 @@ public class ApngCodec {
             int delayMs = Math.round((delayNum * 1000f) / delayDen);
             if (delayMs <= 10) delayMs = 100;
 
-            // Draw frame on canvas
-            canvas.drawBitmap(frameBm, xOffset, yOffset, paint);
+            // 独立帧合成，如果与首帧尺寸不一致则居中自适应绘制在干净的独立帧上
+            Bitmap singleFrameBitmap;
+            if (frameBm.getWidth() == fullW && frameBm.getHeight() == fullH) {
+                singleFrameBitmap = frameBm;
+            } else {
+                singleFrameBitmap = Bitmap.createBitmap(fullW, fullH, Bitmap.Config.ARGB_8888);
+                Canvas c = new Canvas(singleFrameBitmap);
+                c.drawBitmap(frameBm, 0, 0, null);
+            }
 
-            // Add frame snapshot
-            encoder.addFrame(canvasBitmap, delayMs);
+            // 添加独立完整帧到 GIF
+            encoder.addFrame(singleFrameBitmap, delayMs);
         }
 
         encoder.finish();

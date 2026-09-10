@@ -158,7 +158,11 @@ public class GifDecoder {
         byte[] c = new byte[nbytes];
         int n = 0;
         try {
-            n = in.read(c);
+            while (n < nbytes) {
+                int count = in.read(c, n, nbytes - n);
+                if (count == -1) break;
+                n += count;
+            }
         } catch (Exception ignored) {}
         if (n < nbytes) {
             status = STATUS_FORMAT_ERROR;
@@ -381,9 +385,8 @@ public class GifDecoder {
                 int sx = i * iw;
                 while (dx < dlim) {
                     int index = ((int) pixels[sx++]) & 0xff;
-                    int c = act[index];
-                    if (c != 0) {
-                        dest[dx] = c;
+                    if (!transparency || index != transIndex) {
+                        dest[dx] = act[index];
                     }
                     dx++;
                 }
@@ -441,34 +444,41 @@ public class GifDecoder {
                     continue;
                 }
                 if (oldCode == nullCode) {
-                    pixelStack[top++] = suffix[code];
+                    if (top < pixelStack.length) pixelStack[top++] = suffix[code];
                     oldCode = code;
                     first = code;
                     continue;
                 }
                 int inCode = code;
                 if (code == available) {
-                    pixelStack[top++] = (byte) first;
+                    if (top < pixelStack.length) pixelStack[top++] = (byte) first;
                     code = oldCode;
                 }
                 while (code > clear) {
-                    pixelStack[top++] = suffix[code];
+                    if (top < pixelStack.length) pixelStack[top++] = suffix[code];
                     code = prefix[code];
                 }
                 first = ((int) suffix[code]) & 0xff;
-                if (available >= MAX_STACK_SIZE) break;
-                pixelStack[top++] = (byte) first;
-                prefix[available] = (short) oldCode;
-                suffix[available] = (byte) first;
-                available++;
-                if ((available & codeMask) == 0 && available < MAX_STACK_SIZE) {
-                    codeSize++;
-                    codeMask += available;
+                if (top < pixelStack.length) {
+                    if (top < pixelStack.length) pixelStack[top++] = (byte) first;
+                }
+                if (available < MAX_STACK_SIZE) {
+                    prefix[available] = (short) oldCode;
+                    suffix[available] = (byte) first;
+                    available++;
+                    if ((available & codeMask) == 0 && available < MAX_STACK_SIZE) {
+                        codeSize++;
+                        codeMask += available;
+                    }
                 }
                 oldCode = inCode;
             }
-            top--;
-            pixels[pi++] = pixelStack[top];
+            if (top > 0) {
+                top--;
+                if (pi < pixels.length) {
+                    pixels[pi++] = pixelStack[top];
+                }
+            }
             i++;
         }
         for (int i = pi; i < npix; i++) {

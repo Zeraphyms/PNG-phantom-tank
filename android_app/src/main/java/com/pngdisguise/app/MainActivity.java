@@ -747,13 +747,18 @@ public class MainActivity extends Activity {
                         lastRestoredFileList.add(outFile);
 
                         if (firstRestoredBitmap == null) {
-                            if ("gif".equalsIgnoreCase(format)) {
-                                GifDecoder gd = new GifDecoder();
-                                if (gd.read(restored) == 0 && !gd.getFrames().isEmpty()) {
-                                    firstRestoredBitmap = gd.getFrames().get(0).bitmap;
+                            try {
+                                if ("gif".equalsIgnoreCase(format)) {
+                                    GifDecoder gd = new GifDecoder();
+                                    if (gd.read(restored) == 0 && !gd.getFrames().isEmpty()) {
+                                        firstRestoredBitmap = gd.getFrames().get(0).bitmap;
+                                    }
                                 }
-                            } else {
-                                firstRestoredBitmap = BitmapFactory.decodeByteArray(restored, 0, restored.length);
+                            } catch (Exception ignored) {}
+                            if (firstRestoredBitmap == null) {
+                                try {
+                                    firstRestoredBitmap = BitmapFactory.decodeByteArray(restored, 0, restored.length);
+                                } catch (Exception ignored) {}
                             }
                         }
                     }
