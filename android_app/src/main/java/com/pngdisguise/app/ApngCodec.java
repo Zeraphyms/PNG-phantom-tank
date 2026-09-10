@@ -1,5 +1,9 @@
 package com.pngdisguise.app;
 
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.Paint;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -49,6 +53,16 @@ public class ApngCodec {
             this.version = version;
             this.kind = kind;
             this.count = count;
+        }
+    }
+
+    public static class DisguiseResult {
+        public final byte[] data;
+        public final String format; // "gif" or "png"
+
+        public DisguiseResult(byte[] data, String format) {
+            this.data = data;
+            this.format = format;
         }
     }
 
@@ -335,90 +349,10 @@ public class ApngCodec {
         return groups;
     }
 
-    public static byte[] restoreDisguise(byte[] data) throws CodecException, IOException {
-        DisguiseInfo info = inspectDisguise(data);
-        if (info == null) {
-            throw new CodecException("不是有效的 APNG 动画或伪装图片");
-        }
-
-        List<Chunk> chunks = info.chunks;
-        List<FrameGroup> frameGroups = extractFrameGroups(chunks);
-        if (frameGroups.isEmpty()) {
-            throw new CodecException("未在文件中找到任何隐藏的动画帧数据");
-        }
-
-        // 提取原 IHDR
-        byte[] ihdr = null;
-        for (Chunk c : chunks) {
-            if (c.getTypeName().equals("IHDR")) {
-                ihdr = c.payload;
-                break;
-            }
-        }
-        if (ihdr == null) {
-            throw new CodecException("缺少 IHDR 数据块");
-        }
-
-        // 1. 如果是多帧动画且是专属 ANIMATED 协议
-        if ("ANIMATED".equals(info.meta.kind)) {
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
-            out.write(PNG_SIG);
-            out.write(chunkBytes("IHDR".getBytes(StandardCharsets.ISO_8859_1), ihdr));
-
-            byte[] acTL = null;
-            for (Chunk c : chunks) {
-                if (c.getTypeName().equals("acTL")) {
-                    acTL = c.payload;
-                    break;
-                }
-            }
-            int playCount = 0;
-            if (acTL != null && acTL.length >= 8) {
-                ByteBuffer bb = ByteBuffer.wrap(acTL).order(ByteOrder.BIG_ENDIAN);
-                bb.getInt(0);
-                playCount = bb.getInt(4);
-            }
-            int frameCount = frameGroups.size();
-            byte[] newAcTL = new byte[8];
-            ByteBuffer bbAcTL = ByteBuffer.wrap(newAcTL).order(ByteOrder.BIG_ENDIAN);
-            bbAcTL.putInt(frameCount);
-            bbAcTL.putInt(playCount);
-            out.write(chunkBytes("acTL".getBytes(StandardCharsets.ISO_8859_1), newAcTL));
-
-            int seq = 0;
-            for (int i = 0; i < frameGroups.size(); i++) {
-                FrameGroup group = frameGroups.get(i);
-                byte[] fctlData = Arrays.copyOf(group.fcTL, group.fcTL.length);
-                ByteBuffer.wrap(fctlData).order(ByteOrder.BIG_ENDIAN).putInt(0, seq++);
-                out.write(chunkBytes("fcTL".getBytes(StandardCharsets.ISO_8859_1), fctlData));
-
-                for (byte[] piece : group.fdatPieces) {
-                    if (i == 0) {
-                        out.write(chunkBytes("IDAT".getBytes(StandardCharsets.ISO_8859_1), piece));
-                    } else {
-                        byte[] fdatPayload = new byte[4 + piece.length];
-                        ByteBuffer bbFdat = ByteBuffer.wrap(fdatPayload).order(ByteOrder.BIG_ENDIAN);
-                        bbFdat.putInt(seq++);
-                        bbFdat.put(piece);
-                        out.write(chunkBytes("fdAT".getBytes(StandardCharsets.ISO_8859_1), fdatPayload));
-                    }
-                }
-            }
-            out.write(chunkBytes("IEND".getBytes(StandardCharsets.ISO_8859_1), new byte[0]));
-            return out.toByteArray();
-        }
-
-        // 2. 静态隐写模式 或 通用 APNG 模式（包括他人缩略图伪装工具生成的 APNG）
-        // 在 APNG 隐写中，第 0 组 frameGroup 即为隐藏的真实图片帧！
-        FrameGroup targetGroup = frameGroups.get(0);
-        if (targetGroup.fdatPieces.isEmpty()) {
-            throw new CodecException("隐藏图像帧数据块为空");
-        }
-
-        // 注意：根据 fcTL 更新 IHDR 中的真实宽度与高度（他人工具可能封面与真图分辨率不一致）
+    public static byte[] frameGroupToPng(byte[] ihdr, FrameGroup group) throws IOException {
         byte[] targetIhdr = Arrays.copyOf(ihdr, ihdr.length);
-        if (targetGroup.fcTL != null && targetGroup.fcTL.length >= 12) {
-            ByteBuffer bbFctl = ByteBuffer.wrap(targetGroup.fcTL).order(ByteOrder.BIG_ENDIAN);
+        if (group.fcTL != null && group.fcTL.length >= 12) {
+            ByteBuffer bbFctl = ByteBuffer.wrap(group.fcTL).order(ByteOrder.BIG_ENDIAN);
             bbFctl.getInt(0); // sequence_number
             int realWidth = bbFctl.getInt(4);
             int realHeight = bbFctl.getInt(8);
@@ -433,10 +367,125 @@ public class ApngCodec {
         out.write(PNG_SIG);
         out.write(chunkBytes("IHDR".getBytes(StandardCharsets.ISO_8859_1), targetIhdr));
 
-        for (byte[] piece : targetGroup.fdatPieces) {
+        for (byte[] piece : group.fdatPieces) {
             out.write(chunkBytes("IDAT".getBytes(StandardCharsets.ISO_8859_1), piece));
         }
         out.write(chunkBytes("IEND".getBytes(StandardCharsets.ISO_8859_1), new byte[0]));
         return out.toByteArray();
     }
+
+    public static byte[] framesToGif(byte[] ihdr, List<FrameGroup> frameGroups, int loopCount) throws Exception {
+        ByteBuffer bbIhdr = ByteBuffer.wrap(ihdr).order(ByteOrder.BIG_ENDIAN);
+        int fullW = bbIhdr.getInt(0);
+        int fullH = bbIhdr.getInt(4);
+
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        AnimatedGifEncoder encoder = new AnimatedGifEncoder();
+        encoder.setRepeat(loopCount);
+        encoder.start(bos);
+
+        Bitmap canvasBitmap = Bitmap.createBitmap(fullW, fullH, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(canvasBitmap);
+        Paint paint = new Paint();
+
+        for (int i = 0; i < frameGroups.size(); i++) {
+            FrameGroup group = frameGroups.get(i);
+            byte[] pngBytes = frameGroupToPng(ihdr, group);
+            Bitmap frameBm = BitmapFactory.decodeByteArray(pngBytes, 0, pngBytes.length);
+            if (frameBm == null) continue;
+
+            int delayNum = 10;
+            int delayDen = 100;
+            int xOffset = 0;
+            int yOffset = 0;
+
+            if (group.fcTL != null && group.fcTL.length >= 26) {
+                ByteBuffer bb = ByteBuffer.wrap(group.fcTL).order(ByteOrder.BIG_ENDIAN);
+                bb.getInt(0); // seq
+                bb.getInt(4); // w
+                bb.getInt(8); // h
+                xOffset = bb.getInt(12);
+                yOffset = bb.getInt(16);
+                delayNum = bb.getShort(20) & 0xFFFF;
+                delayDen = bb.getShort(22) & 0xFFFF;
+            }
+
+            if (delayDen == 0) delayDen = 100;
+            if (delayNum == 0) delayNum = 10;
+            int delayMs = Math.round((delayNum * 1000f) / delayDen);
+            if (delayMs <= 10) delayMs = 100;
+
+            // Draw frame on canvas
+            canvas.drawBitmap(frameBm, xOffset, yOffset, paint);
+
+            // Add frame snapshot
+            encoder.addFrame(canvasBitmap, delayMs);
+        }
+
+        encoder.finish();
+        return bos.toByteArray();
+    }
+
+    public static DisguiseResult restoreDisguiseResult(byte[] data) throws CodecException, IOException {
+        DisguiseInfo info = inspectDisguise(data);
+        if (info == null) {
+            throw new CodecException("不是有效的 APNG 或隐藏伪装图片");
+        }
+
+        List<Chunk> chunks = info.chunks;
+        List<FrameGroup> frameGroups = extractFrameGroups(chunks);
+        if (frameGroups.isEmpty()) {
+            throw new CodecException("未在文件中找到任何隐藏的动画帧数据");
+        }
+
+        byte[] ihdr = null;
+        for (Chunk c : chunks) {
+            if (c.getTypeName().equals("IHDR")) {
+                ihdr = c.payload;
+                break;
+            }
+        }
+        if (ihdr == null) {
+            throw new CodecException("缺少 IHDR 数据块");
+        }
+
+        int frameCount = frameGroups.size();
+        boolean isAnimatedDisguise = "ANIMATED".equals(info.meta.kind);
+        boolean hasFiveOrMoreFrames = (frameCount >= 5);
+
+        // 若识别为带有特征的动态隐写(ANIMATED) 或者 隐藏帧数 >= 5 时，还原出的真图格式设置为动态 gif
+        if (isAnimatedDisguise || hasFiveOrMoreFrames) {
+            try {
+                int playCount = 0;
+                for (Chunk c : chunks) {
+                    if (c.getTypeName().equals("acTL")) {
+                        if (c.payload.length >= 8) {
+                            playCount = ByteBuffer.wrap(c.payload).order(ByteOrder.BIG_ENDIAN).getInt(4);
+                        }
+                        break;
+                    }
+                }
+                byte[] gifBytes = framesToGif(ihdr, frameGroups, playCount);
+                if (gifBytes != null && gifBytes.length > 0) {
+                    return new DisguiseResult(gifBytes, "gif");
+                }
+            } catch (Exception ignored) {
+                // 如果转 GIF 异常，安全降级为 APNG / PNG
+            }
+        }
+
+        // 单帧或静态图还原为 PNG
+        FrameGroup targetGroup = frameGroups.get(0);
+        if (targetGroup.fdatPieces.isEmpty()) {
+            throw new CodecException("隐藏图像帧数据块为空");
+        }
+
+        byte[] pngBytes = frameGroupToPng(ihdr, targetGroup);
+        return new DisguiseResult(pngBytes, "png");
+    }
+
+    public static byte[] restoreDisguise(byte[] data) throws Exception {
+        return restoreDisguiseResult(data).data;
+    }
+
 }

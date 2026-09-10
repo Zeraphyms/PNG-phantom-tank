@@ -33,7 +33,7 @@
             android:paddingEnd="8dp"
             android:paddingTop="3dp"
             android:paddingBottom="3dp"
-            android:text="移动版 v1.3.0"
+            android:text="移动版 v1.3.1.1"
             android:textColor="#E0E7FF"
             android:textSize="11sp" />
     </LinearLayout>
@@ -285,7 +285,218 @@
                     </LinearLayout>
                 </LinearLayout>
 
-                <!-- 开始伪装操作按钮 -->
+                                <!-- 3. 补齐底色设置 (当隐藏图尺寸与封面比例不一致时使用) -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:background="@drawable/bg_card"
+                    android:elevation="2dp"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="3. 封面补齐底色 (自适应留白)"
+                            android:textColor="@color/text_main"
+                            android:textSize="15sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:id="@+id/tv_selected_color_name"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="当前: 纯黑色"
+                            android:textColor="@color/primary"
+                            android:textSize="12sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:text="当原图尺寸大于或宽高比不同于封面时，四周空隙将使用所选底色进行补齐："
+                        android:textColor="@color/text_muted"
+                        android:textSize="12sp" />
+
+                    <!-- 6色圆形色块选择器 -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <!-- 黑色 (默认) -->
+                        <LinearLayout
+                            android:id="@+id/btn_color_black"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:gravity="center"
+                            android:orientation="vertical"
+                            android:padding="4dp">
+
+                            <View
+                                android:id="@+id/dot_color_black"
+                                android:layout_width="30dp"
+                                android:layout_height="30dp"
+                                android:background="@drawable/color_dot_black_selected" />
+
+                            <TextView
+                                android:id="@+id/lbl_color_black"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="4dp"
+                                android:text="黑色"
+                                android:textColor="@color/primary"
+                                android:textSize="11sp"
+                                android:textStyle="bold" />
+                        </LinearLayout>
+
+                        <!-- 白色 -->
+                        <LinearLayout
+                            android:id="@+id/btn_color_white"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:gravity="center"
+                            android:orientation="vertical"
+                            android:padding="4dp">
+
+                            <View
+                                android:id="@+id/dot_color_white"
+                                android:layout_width="30dp"
+                                android:layout_height="30dp"
+                                android:background="@drawable/color_dot_white" />
+
+                            <TextView
+                                android:id="@+id/lbl_color_white"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="4dp"
+                                android:text="白色"
+                                android:textColor="@color/text_secondary"
+                                android:textSize="11sp" />
+                        </LinearLayout>
+
+                        <!-- 红色 -->
+                        <LinearLayout
+                            android:id="@+id/btn_color_red"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:gravity="center"
+                            android:orientation="vertical"
+                            android:padding="4dp">
+
+                            <View
+                                android:id="@+id/dot_color_red"
+                                android:layout_width="30dp"
+                                android:layout_height="30dp"
+                                android:background="@drawable/color_dot_red" />
+
+                            <TextView
+                                android:id="@+id/lbl_color_red"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="4dp"
+                                android:text="红色"
+                                android:textColor="@color/text_secondary"
+                                android:textSize="11sp" />
+                        </LinearLayout>
+
+                        <!-- 绿色 -->
+                        <LinearLayout
+                            android:id="@+id/btn_color_green"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:gravity="center"
+                            android:orientation="vertical"
+                            android:padding="4dp">
+
+                            <View
+                                android:id="@+id/dot_color_green"
+                                android:layout_width="30dp"
+                                android:layout_height="30dp"
+                                android:background="@drawable/color_dot_green" />
+
+                            <TextView
+                                android:id="@+id/lbl_color_green"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="4dp"
+                                android:text="绿色"
+                                android:textColor="@color/text_secondary"
+                                android:textSize="11sp" />
+                        </LinearLayout>
+
+                        <!-- 蓝色 -->
+                        <LinearLayout
+                            android:id="@+id/btn_color_blue"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:gravity="center"
+                            android:orientation="vertical"
+                            android:padding="4dp">
+
+                            <View
+                                android:id="@+id/dot_color_blue"
+                                android:layout_width="30dp"
+                                android:layout_height="30dp"
+                                android:background="@drawable/color_dot_blue" />
+
+                            <TextView
+                                android:id="@+id/lbl_color_blue"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="4dp"
+                                android:text="蓝色"
+                                android:textColor="@color/text_secondary"
+                                android:textSize="11sp" />
+                        </LinearLayout>
+
+                        <!-- 黄色 -->
+                        <LinearLayout
+                            android:id="@+id/btn_color_yellow"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:gravity="center"
+                            android:orientation="vertical"
+                            android:padding="4dp">
+
+                            <View
+                                android:id="@+id/dot_color_yellow"
+                                android:layout_width="30dp"
+                                android:layout_height="30dp"
+                                android:background="@drawable/color_dot_yellow" />
+
+                            <TextView
+                                android:id="@+id/lbl_color_yellow"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="4dp"
+                                android:text="黄色"
+                                android:textColor="@color/text_secondary"
+                                android:textSize="11sp" />
+                        </LinearLayout>
+
+                    </LinearLayout>
+                </LinearLayout>
+
+<!-- 开始伪装操作按钮 -->
                 <Button
                     android:id="@+id/btn_do_disguise"
                     android:layout_width="match_parent"

@@ -15,7 +15,7 @@ import java.util.List;
 
 public class ImageProcessor {
 
-    public static final int COVER_BG_COLOR = Color.rgb(37, 99, 235); // #2563eb
+    public static final int COVER_BG_COLOR = Color.rgb(0, 0, 0); // 默认黑色
     public static final int MAX_FRAME_PIXELS = 8_000_000;
     public static final int MAX_TOTAL_PIXELS = 300_000_000;
 
@@ -53,9 +53,13 @@ public class ImageProcessor {
     }
 
     public static Bitmap makeCover(int canvasW, int canvasH, Bitmap coverSrc, Integer badge) {
+        return makeCover(canvasW, canvasH, coverSrc, badge, COVER_BG_COLOR);
+    }
+
+    public static Bitmap makeCover(int canvasW, int canvasH, Bitmap coverSrc, Integer badge, int bgColor) {
         Bitmap canvas = Bitmap.createBitmap(canvasW, canvasH, Bitmap.Config.ARGB_8888);
         Canvas c = new Canvas(canvas);
-        c.drawColor(COVER_BG_COLOR);
+        c.drawColor(bgColor);
 
         if (coverSrc != null) {
             float scale = Math.min((float) canvasW / coverSrc.getWidth(), (float) canvasH / coverSrc.getHeight());
@@ -105,6 +109,10 @@ public class ImageProcessor {
     }
 
     public static byte[] disguiseStatic(Bitmap srcImage, Bitmap coverImage, Integer badge) throws Exception {
+        return disguiseStatic(srcImage, coverImage, badge, COVER_BG_COLOR);
+    }
+
+    public static byte[] disguiseStatic(Bitmap srcImage, Bitmap coverImage, Integer badge, int bgColor) throws Exception {
         int w = srcImage.getWidth();
         int h = srcImage.getHeight();
         if (w <= 0 || h <= 0) {
@@ -114,7 +122,7 @@ public class ImageProcessor {
             throw new ProcessException("图片尺寸过大（单帧不可超过800万像素）");
         }
 
-        Bitmap cover = makeCover(w, h, coverImage, badge);
+        Bitmap cover = makeCover(w, h, coverImage, badge, bgColor);
         byte[] coverRgba = bitmapToRgbaBytes(cover);
         byte[] srcRgba = bitmapToRgbaBytes(srcImage);
 
@@ -132,6 +140,10 @@ public class ImageProcessor {
     }
 
     public static byte[] disguiseGif(byte[] gifBytes, Bitmap coverImage, Integer badge) throws Exception {
+        return disguiseGif(gifBytes, coverImage, badge, COVER_BG_COLOR);
+    }
+
+    public static byte[] disguiseGif(byte[] gifBytes, Bitmap coverImage, Integer badge, int bgColor) throws Exception {
         GifDecoder decoder = new GifDecoder();
         int status = decoder.read(gifBytes);
         if (status != 0 || decoder.getFrames().isEmpty()) {
@@ -149,7 +161,7 @@ public class ImageProcessor {
             throw new ProcessException("GIF 动图总像素过大");
         }
 
-        Bitmap cover = makeCover(w, h, coverImage, badge);
+        Bitmap cover = makeCover(w, h, coverImage, badge, bgColor);
         byte[] coverRgba = bitmapToRgbaBytes(cover);
 
         int playCount = decoder.getLoopCount();
@@ -166,7 +178,12 @@ public class ImageProcessor {
         return writer.finish();
     }
 
+    public static ApngCodec.DisguiseResult restoreDisguiseResult(byte[] apngBytes) throws Exception {
+        return ApngCodec.restoreDisguiseResult(apngBytes);
+    }
+
     public static byte[] restoreDisguise(byte[] apngBytes) throws Exception {
         return ApngCodec.restoreDisguise(apngBytes);
     }
+
 }

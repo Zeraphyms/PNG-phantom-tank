@@ -105,6 +105,13 @@ public class MainActivity extends Activity {
     private View layoutHistoryEmpty;
     private LinearLayout llHistoryContainer;
 
+    // Cover Padding Color Selection
+    private int selectedBgColor = Color.BLACK;
+    private TextView tvSelectedColorName;
+    private View btnColorBlack, btnColorWhite, btnColorRed, btnColorGreen, btnColorBlue, btnColorYellow;
+    private View dotColorBlack, dotColorWhite, dotColorRed, dotColorGreen, dotColorBlue, dotColorYellow;
+    private TextView lblColorBlack, lblColorWhite, lblColorRed, lblColorGreen, lblColorBlue, lblColorYellow;
+
     // Help View
     private TextView tvProjectLink;
 
@@ -121,6 +128,7 @@ public class MainActivity extends Activity {
     // States for Restore
     private final List<Uri> restoreUris = new ArrayList<>();
     private final List<byte[]> lastRestoredBytesList = new ArrayList<>();
+    private final List<String> lastRestoredFormatsList = new ArrayList<>();
     private final List<File> lastRestoredFileList = new ArrayList<>();
     private Bitmap firstRestoredBitmap;
 
@@ -183,7 +191,94 @@ public class MainActivity extends Activity {
         layoutHistoryEmpty = findViewById(R.id.layout_history_empty);
         llHistoryContainer = (LinearLayout) findViewById(R.id.ll_history_container);
 
+        tvSelectedColorName = (TextView) findViewById(R.id.tv_selected_color_name);
+        btnColorBlack = findViewById(R.id.btn_color_black);
+        btnColorWhite = findViewById(R.id.btn_color_white);
+        btnColorRed = findViewById(R.id.btn_color_red);
+        btnColorGreen = findViewById(R.id.btn_color_green);
+        btnColorBlue = findViewById(R.id.btn_color_blue);
+        btnColorYellow = findViewById(R.id.btn_color_yellow);
+
+        dotColorBlack = findViewById(R.id.dot_color_black);
+        dotColorWhite = findViewById(R.id.dot_color_white);
+        dotColorRed = findViewById(R.id.dot_color_red);
+        dotColorGreen = findViewById(R.id.dot_color_green);
+        dotColorBlue = findViewById(R.id.dot_color_blue);
+        dotColorYellow = findViewById(R.id.dot_color_yellow);
+
+        lblColorBlack = (TextView) findViewById(R.id.lbl_color_black);
+        lblColorWhite = (TextView) findViewById(R.id.lbl_color_white);
+        lblColorRed = (TextView) findViewById(R.id.lbl_color_red);
+        lblColorGreen = (TextView) findViewById(R.id.lbl_color_green);
+        lblColorBlue = (TextView) findViewById(R.id.lbl_color_blue);
+        lblColorYellow = (TextView) findViewById(R.id.lbl_color_yellow);
+
         tvProjectLink = (TextView) findViewById(R.id.tv_project_link);
+    }
+
+    private void setupColorSelector() {
+        btnColorBlack.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { selectPaddingColor(Color.BLACK, "纯黑色", "black"); }
+        });
+        btnColorWhite.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { selectPaddingColor(Color.WHITE, "纯白色", "white"); }
+        });
+        btnColorRed.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { selectPaddingColor(Color.parseColor("#EF4444"), "喜庆红", "red"); }
+        });
+        btnColorGreen.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { selectPaddingColor(Color.parseColor("#10B981"), "护眼绿", "green"); }
+        });
+        btnColorBlue.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { selectPaddingColor(Color.parseColor("#2563EB"), "经典蓝", "blue"); }
+        });
+        btnColorYellow.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { selectPaddingColor(Color.parseColor("#FACC15"), "明亮黄", "yellow"); }
+        });
+    }
+
+    private void selectPaddingColor(int color, String name, String key) {
+        selectedBgColor = color;
+        tvSelectedColorName.setText("当前: " + name);
+
+        // Reset all dots to unselected
+        dotColorBlack.setBackgroundResource(R.drawable.color_dot_black);
+        dotColorWhite.setBackgroundResource(R.drawable.color_dot_white);
+        dotColorRed.setBackgroundResource(R.drawable.color_dot_red);
+        dotColorGreen.setBackgroundResource(R.drawable.color_dot_green);
+        dotColorBlue.setBackgroundResource(R.drawable.color_dot_blue);
+        dotColorYellow.setBackgroundResource(R.drawable.color_dot_yellow);
+
+        int primaryColor = getResources().getColor(R.color.primary);
+        int secondaryColor = getResources().getColor(R.color.text_secondary);
+
+        lblColorBlack.setTextColor(secondaryColor); lblColorBlack.setTypeface(null, android.graphics.Typeface.NORMAL);
+        lblColorWhite.setTextColor(secondaryColor); lblColorWhite.setTypeface(null, android.graphics.Typeface.NORMAL);
+        lblColorRed.setTextColor(secondaryColor); lblColorRed.setTypeface(null, android.graphics.Typeface.NORMAL);
+        lblColorGreen.setTextColor(secondaryColor); lblColorGreen.setTypeface(null, android.graphics.Typeface.NORMAL);
+        lblColorBlue.setTextColor(secondaryColor); lblColorBlue.setTypeface(null, android.graphics.Typeface.NORMAL);
+        lblColorYellow.setTextColor(secondaryColor); lblColorYellow.setTypeface(null, android.graphics.Typeface.NORMAL);
+
+        if ("black".equals(key)) {
+            dotColorBlack.setBackgroundResource(R.drawable.color_dot_black_selected);
+            lblColorBlack.setTextColor(primaryColor); lblColorBlack.setTypeface(null, android.graphics.Typeface.BOLD);
+        } else if ("white".equals(key)) {
+            dotColorWhite.setBackgroundResource(R.drawable.color_dot_white_selected);
+            lblColorWhite.setTextColor(primaryColor); lblColorWhite.setTypeface(null, android.graphics.Typeface.BOLD);
+        } else if ("red".equals(key)) {
+            dotColorRed.setBackgroundResource(R.drawable.color_dot_red_selected);
+            lblColorRed.setTextColor(primaryColor); lblColorRed.setTypeface(null, android.graphics.Typeface.BOLD);
+        } else if ("green".equals(key)) {
+            dotColorGreen.setBackgroundResource(R.drawable.color_dot_green_selected);
+            lblColorGreen.setTextColor(primaryColor); lblColorGreen.setTypeface(null, android.graphics.Typeface.BOLD);
+        } else if ("blue".equals(key)) {
+            dotColorBlue.setBackgroundResource(R.drawable.color_dot_blue_selected);
+            lblColorBlue.setTextColor(primaryColor); lblColorBlue.setTypeface(null, android.graphics.Typeface.BOLD);
+        } else if ("yellow".equals(key)) {
+            dotColorYellow.setBackgroundResource(R.drawable.color_dot_yellow_selected);
+            lblColorYellow.setTextColor(primaryColor); lblColorYellow.setTypeface(null, android.graphics.Typeface.BOLD);
+        }
+        Toast.makeText(this, "已设置补齐底色为: " + name, Toast.LENGTH_SHORT).show();
     }
 
     private void setupTabs() {
@@ -276,6 +371,9 @@ public class MainActivity extends Activity {
     }
 
     private void setupEventListeners() {
+        // Setup 6-color padding selector
+        setupColorSelector();
+
         // Disguise Page
         boxSelectSrc.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) { pickImages(REQ_PICK_SRC_IMAGE, true); }
@@ -339,7 +437,13 @@ public class MainActivity extends Activity {
         });
 
         btnShareRestored.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) { shareFiles(lastRestoredFileList, "image/png"); }
+            public void onClick(View v) {
+                String mime = "image/png";
+                if (!lastRestoredFileList.isEmpty() && lastRestoredFileList.get(0).getName().toLowerCase(Locale.CHINA).endsWith(".gif")) {
+                    mime = "image/gif";
+                }
+                shareFiles(lastRestoredFileList, mime);
+            }
         });
 
         // Project Link in Help
@@ -464,9 +568,11 @@ public class MainActivity extends Activity {
             tvRestoreInspectInfo.setVisibility(View.VISIBLE);
             if (count == 1) {
                 if (info != null) {
+                    boolean isAnim = "ANIMATED".equals(info.meta.kind) || (info.meta.count >= 5);
                     String kindStr = "STATIC".equals(info.meta.kind) ? "静态隐写" : ("ANIMATED".equals(info.meta.kind) ? "动图隐写" : "标准隐藏帧");
-                    tvRestoreInspectInfo.setText(String.format(Locale.CHINA, "✔ 识别为伪装 APNG (%s, 隐藏%d帧, 尺寸 %dx%d)",
-                            kindStr, info.meta.count, info.width, info.height));
+                    String formatHint = isAnim ? "还原为动图 GIF" : "还原为图片 PNG";
+                    tvRestoreInspectInfo.setText(String.format(Locale.CHINA, "✔ 识别为伪装 APNG (%s, 隐藏%d帧, 尺寸 %dx%d, 将%s)",
+                            kindStr, info.meta.count, info.width, info.height, formatHint));
                     tvRestoreInspectInfo.setTextColor(getResources().getColor(R.color.success));
                 } else {
                     tvRestoreInspectInfo.setText("ℹ 未检测到标准隐写特征，尝试直接提取");
@@ -520,11 +626,11 @@ public class MainActivity extends Activity {
                         Integer badge = (totalCount > 1) ? currentIdx : null;
                         byte[] result;
                         if (isGif) {
-                            result = ImageProcessor.disguiseGif(bytes, cover, badge);
+                            result = ImageProcessor.disguiseGif(bytes, cover, badge, selectedBgColor);
                         } else {
                             Bitmap bm = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
                             if (bm == null) continue;
-                            result = ImageProcessor.disguiseStatic(bm, cover, badge);
+                            result = ImageProcessor.disguiseStatic(bm, cover, badge, selectedBgColor);
                         }
 
                         lastDisguisedBytesList.add(result);
@@ -540,7 +646,7 @@ public class MainActivity extends Activity {
 
                     // 预览图生成第一张的封面和内容
                     final Bitmap previewCover = (firstSrcBitmap != null) ?
-                            ImageProcessor.makeCover(firstSrcBitmap.getWidth(), firstSrcBitmap.getHeight(), cover, totalCount > 1 ? 1 : null) : null;
+                            ImageProcessor.makeCover(firstSrcBitmap.getWidth(), firstSrcBitmap.getHeight(), cover, totalCount > 1 ? 1 : null, selectedBgColor) : null;
 
                     mainHandler.post(new Runnable() {
                         public void run() {
@@ -598,6 +704,7 @@ public class MainActivity extends Activity {
             public void run() {
                 try {
                     lastRestoredBytesList.clear();
+                    lastRestoredFormatsList.clear();
                     lastRestoredFileList.clear();
 
                     File cacheDir = getExternalFilesDir(Environment.DIRECTORY_PICTURES);
@@ -616,17 +723,22 @@ public class MainActivity extends Activity {
                         Uri uri = restoreUris.get(i);
                         byte[] bytes = readUriBytes(uri);
 
-                        byte[] restored;
+                        ApngCodec.DisguiseResult result;
                         try {
-                            restored = ImageProcessor.restoreDisguise(bytes);
+                            result = ImageProcessor.restoreDisguiseResult(bytes);
                         } catch (Exception e) {
                             continue;
                         }
 
+                        byte[] restored = result.data;
+                        String format = result.format; // "gif" or "png"
+
                         lastRestoredBytesList.add(restored);
+                        lastRestoredFormatsList.add(format);
                         successCount++;
 
-                        String fileName = String.format(Locale.CHINA, "%03d_restored_%s.png", currentIdx, timeBase);
+                        String ext = "gif".equalsIgnoreCase(format) ? ".gif" : ".png";
+                        String fileName = String.format(Locale.CHINA, "%03d_restored_%s%s", currentIdx, timeBase, ext);
                         File historyDir = getHistoryStorageDir();
                         File outFile = new File(historyDir, fileName);
                         FileOutputStream fos = new FileOutputStream(outFile);
@@ -635,7 +747,14 @@ public class MainActivity extends Activity {
                         lastRestoredFileList.add(outFile);
 
                         if (firstRestoredBitmap == null) {
-                            firstRestoredBitmap = BitmapFactory.decodeByteArray(restored, 0, restored.length);
+                            if ("gif".equalsIgnoreCase(format)) {
+                                GifDecoder gd = new GifDecoder();
+                                if (gd.read(restored) == 0 && !gd.getFrames().isEmpty()) {
+                                    firstRestoredBitmap = gd.getFrames().get(0).bitmap;
+                                }
+                            } else {
+                                firstRestoredBitmap = BitmapFactory.decodeByteArray(restored, 0, restored.length);
+                            }
                         }
                     }
 
@@ -655,8 +774,9 @@ public class MainActivity extends Activity {
                             if (totalCount == 1) {
                                 tvRestoreResultTitle.setText("✨ 成功提取还原真实图片");
                                 byte[] res = lastRestoredBytesList.get(0);
+                                String fmt = lastRestoredFormatsList.get(0).toUpperCase(Locale.CHINA);
                                 tvRestoreSummary.setText(String.format(Locale.CHINA,
-                                        "还原成功！格式: PNG | 大小: %.1f KB", res.length / 1024f));
+                                        "还原成功！格式: %s 动静真图 | 大小: %.1f KB", fmt, res.length / 1024f));
                             } else {
                                 tvRestoreResultTitle.setText(String.format(Locale.CHINA, "✨ 批量还原完成 (成功提取 %d/%d 张)", finalSuccess, totalCount));
                                 tvRestoreSummary.setText(String.format(Locale.CHINA,
@@ -694,7 +814,53 @@ public class MainActivity extends Activity {
             Toast.makeText(this, "暂无还原的图片可保存", Toast.LENGTH_SHORT).show();
             return;
         }
-        saveBytesListToPictures(lastRestoredBytesList, "restored");
+        saveRestoredBytesListToPictures(lastRestoredBytesList, lastRestoredFormatsList, "restored");
+    }
+
+    private void saveRestoredBytesListToPictures(List<byte[]> list, List<String> formats, String prefix) {
+        int savedCount = 0;
+        String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.CHINA).format(new Date());
+        ContentResolver resolver = getContentResolver();
+
+        for (int i = 0; i < list.size(); i++) {
+            byte[] data = list.get(i);
+            String fmt = (i < formats.size()) ? formats.get(i) : "png";
+            boolean isGif = "gif".equalsIgnoreCase(fmt);
+            String ext = isGif ? ".gif" : ".png";
+            String mime = isGif ? "image/gif" : "image/png";
+            String fileName = String.format(Locale.CHINA, "%s_%s_%03d%s", prefix, timeStamp, i + 1, ext);
+
+            ContentValues values = new ContentValues();
+            values.put(MediaStore.Images.Media.DISPLAY_NAME, fileName);
+            values.put(MediaStore.Images.Media.MIME_TYPE, mime);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                values.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/PNG伪装");
+                values.put(MediaStore.Images.Media.IS_PENDING, 1);
+            }
+
+            try {
+                Uri uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+                if (uri != null) {
+                    OutputStream os = resolver.openOutputStream(uri);
+                    if (os != null) {
+                        os.write(data);
+                        os.close();
+                    }
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        values.clear();
+                        values.put(MediaStore.Images.Media.IS_PENDING, 0);
+                        resolver.update(uri, values, null, null);
+                    }
+                    savedCount++;
+                }
+            } catch (Exception ignored) {}
+        }
+
+        if (savedCount > 0) {
+            Toast.makeText(this, String.format(Locale.CHINA, "已成功保存 %d 张图片到相册 Pictures/PNG伪装 目录", savedCount), Toast.LENGTH_LONG).show();
+        } else {
+            Toast.makeText(this, "保存到相册失败", Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void saveBytesListToPictures(List<byte[]> list, String prefix) {
@@ -782,9 +948,11 @@ public class MainActivity extends Activity {
     private void saveSingleFileToGallery(File file) {
         try {
             byte[] data = readFileToBytes(file);
+            boolean isGif = file.getName().toLowerCase(Locale.CHINA).endsWith(".gif");
+            String mime = isGif ? "image/gif" : "image/png";
             ContentValues values = new ContentValues();
             values.put(MediaStore.Images.Media.DISPLAY_NAME, file.getName());
-            values.put(MediaStore.Images.Media.MIME_TYPE, "image/png");
+            values.put(MediaStore.Images.Media.MIME_TYPE, mime);
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 values.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/PNG伪装");
                 values.put(MediaStore.Images.Media.IS_PENDING, 1);
@@ -824,7 +992,8 @@ public class MainActivity extends Activity {
             File[] oldFiles = baseDir.listFiles();
             if (oldFiles != null) {
                 for (File f : oldFiles) {
-                    if (f.isFile() && f.getName().endsWith(".png") && (f.getName().contains("disguised") || f.getName().contains("restored"))) {
+                    String n = f.getName().toLowerCase(Locale.CHINA);
+                    if (f.isFile() && (n.endsWith(".png") || n.endsWith(".gif")) && (n.contains("disguised") || n.contains("restored"))) {
                         list.add(f);
                     }
                 }
@@ -900,7 +1069,8 @@ public class MainActivity extends Activity {
                 public void onClick(View v) {
                     List<File> singleList = new ArrayList<>();
                     singleList.add(file);
-                    shareFiles(singleList, "image/png");
+                    String mime = file.getName().toLowerCase(Locale.CHINA).endsWith(".gif") ? "image/gif" : "image/png";
+                    shareFiles(singleList, mime);
                 }
             });
 
@@ -950,7 +1120,20 @@ public class MainActivity extends Activity {
                     }
                     opts.inSampleSize = inSampleSize;
                     opts.inJustDecodeBounds = false;
-                    final Bitmap thumb = BitmapFactory.decodeFile(file.getAbsolutePath(), opts);
+                    Bitmap loaded = null;
+                    if (file.getName().toLowerCase(Locale.CHINA).endsWith(".gif")) {
+                        try {
+                            byte[] gBytes = readFileToBytes(file);
+                            GifDecoder gd = new GifDecoder();
+                            if (gd.read(gBytes) == 0 && !gd.getFrames().isEmpty()) {
+                                loaded = gd.getFrames().get(0).bitmap;
+                            }
+                        } catch (Exception ignored) {}
+                    }
+                    if (loaded == null) {
+                        loaded = BitmapFactory.decodeFile(file.getAbsolutePath(), opts);
+                    }
+                    final Bitmap thumb = loaded;
 
                     if (thumb != null) {
                         mainHandler.post(new Runnable() {
@@ -972,7 +1155,19 @@ public class MainActivity extends Activity {
             imageView.setScaleType(ImageView.ScaleType.FIT_CENTER);
             imageView.setBackgroundColor(Color.BLACK);
 
-            Bitmap bm = BitmapFactory.decodeFile(file.getAbsolutePath());
+            Bitmap bm = null;
+            if (file.getName().toLowerCase(Locale.CHINA).endsWith(".gif")) {
+                try {
+                    byte[] gBytes = readFileToBytes(file);
+                    GifDecoder gd = new GifDecoder();
+                    if (gd.read(gBytes) == 0 && !gd.getFrames().isEmpty()) {
+                        bm = gd.getFrames().get(0).bitmap;
+                    }
+                } catch (Exception ignored) {}
+            }
+            if (bm == null) {
+                bm = BitmapFactory.decodeFile(file.getAbsolutePath());
+            }
             if (bm != null) {
                 imageView.setImageBitmap(bm);
             } else {
