@@ -1,6 +1,6 @@
 /**
  * GifReader.js - 纯前端 GIF87a/GIF89a 完整逐帧解码引擎
- * 提取动图的每一帧 ImageData、延时及循环次数，用于合成多帧动态 APNG
+ * 完整支持 GIF Dispose 帧间累积叠加模式（Disposal Method 1: 不清空累积 / 2: 恢复背景 / 3: 恢复前一帧）
  */
 (function(global) {
   function GifReader(u8Data) {
@@ -30,6 +30,14 @@
     var delay = 100;
     var transIndex = -1;
     var disposalMethod = 0;
+    var lastDisposal = 0;
+
+    // 累积全画幅画布
+    var fullCanvas = document.createElement("canvas");
+    fullCanvas.width = width;
+    fullCanvas.height = height;
+    var fullCtx = fullCanvas.getContext("2d", { willReadFrequently: true });
+    var prevFrameCanvas = null;
 
     while (pos < u8Data.length) {
       var code = readByte();
@@ -61,7 +69,6 @@
             }
           }
         } else {
-          // Other extension, skip blocks
           while (true) {
             var subLen = readByte();
             if (subLen === 0) break;
@@ -179,25 +186,41 @@
           pixels[pi++] = pixelStack[top];
         }
 
-        // skip trailing zero blocks
         while (true) {
           var rem = readByte();
           if (rem === 0) break;
           pos += rem;
         }
 
-        // Convert indexed pixels to Canvas RGBA
-        var canvas = document.createElement("canvas");
-        canvas.width = width;
-        canvas.height = height;
-        var ctx = canvas.getContext("2d");
-        var imgData = ctx.createImageData(width, height);
-        var dataBuf = imgData.data;
+        // 处理上一帧的 Disposal Method
+        if (lastDisposal === 2) {
+          // 恢复背景/清空
+          fullCtx.clearRect(x, y, w, h);
+        } else if (lastDisposal === 3 && prevFrameCanvas) {
+          // 恢复到前一帧
+          fullCtx.clearRect(0, 0, width, height);
+          fullCtx.drawImage(prevFrameCanvas, 0, 0);
+        }
 
-        // Render pass considering interlace
+        // 保存当前帧状态用于下一次 disposal 3
+        if (disposalMethod === 3) {
+          prevFrameCanvas = document.createElement("canvas");
+          prevFrameCanvas.width = width;
+          prevFrameCanvas.height = height;
+          prevFrameCanvas.getContext("2d").drawImage(fullCanvas, 0, 0);
+        }
+
+        // 局部补丁图层离屏 Canvas
+        var patchCanvas = document.createElement("canvas");
+        patchCanvas.width = w;
+        patchCanvas.height = h;
+        var pctx = patchCanvas.getContext("2d");
+        var patchData = pctx.createImageData(w, h);
+        var pBuf = patchData.data;
+
         var pass = 1, inc = 8, iline = 0;
-        for (var i = 0; i < h; i++) {
-          var line = i;
+        for (var row = 0; row < h; row++) {
+          var line = row;
           if (interlace) {
             if (iline >= h) {
               pass++;
@@ -210,33 +233,39 @@
             line = iline;
             iline += inc;
           }
-          line += y;
-          if (line < height) {
-            var rowStart = line * width + x;
-            var srcRowStart = i * w;
-            for (var col = 0; col < w; col++) {
-              if (x + col < width) {
-                var pIdx = pixels[srcRowStart + col];
-                if (pIdx !== transIndex && act) {
-                  var pOffset = (rowStart + col) * 4;
-                  var cOffset = pIdx * 3;
-                  dataBuf[pOffset] = act[cOffset];
-                  dataBuf[pOffset + 1] = act[cOffset + 1];
-                  dataBuf[pOffset + 2] = act[cOffset + 2];
-                  dataBuf[pOffset + 3] = 255;
-                }
-              }
+          var srcRowStart = row * w;
+          var dstRowStart = line * w * 4;
+          for (var col = 0; col < w; col++) {
+            var pIdx = pixels[srcRowStart + col];
+            if (pIdx !== transIndex && act) {
+              var pOffset = dstRowStart + col * 4;
+              var cOffset = pIdx * 3;
+              pBuf[pOffset] = act[cOffset];
+              pBuf[pOffset + 1] = act[cOffset + 1];
+              pBuf[pOffset + 2] = act[cOffset + 2];
+              pBuf[pOffset + 3] = 255;
             }
           }
         }
-        ctx.putImageData(imgData, 0, 0);
+        pctx.putImageData(patchData, 0, 0);
+
+        // 叠加绘制到累积画布上！
+        fullCtx.drawImage(patchCanvas, x, y);
+
+        // 输出当前完整合成画面
+        var outCanvas = document.createElement("canvas");
+        outCanvas.width = width;
+        outCanvas.height = height;
+        outCanvas.getContext("2d").drawImage(fullCanvas, 0, 0);
 
         frames.push({
-          canvas: canvas,
+          canvas: outCanvas,
           delay: delay,
           width: width,
           height: height
         });
+
+        lastDisposal = disposalMethod;
       }
     }
 

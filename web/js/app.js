@@ -474,13 +474,25 @@ document.addEventListener("DOMContentLoaded", () => {
                     for (let g of groups) {
                         const framePngBytes = ApngCodec.frameGroupToPng(ihdr, g);
                         const frameImg = await loadImage(URL.createObjectURL(new Blob([framePngBytes], { type: "image/png" })));
+                        
+                        let delayMs = 100;
+                        if (g.fcTL && g.fcTL.length >= 26) {
+                            let vf = new DataView(g.fcTL.buffer, g.fcTL.byteOffset, g.fcTL.byteLength);
+                            let dNum = vf.getUint16(20, false);
+                            let dDen = vf.getUint16(22, false);
+                            if (dDen === 0) dDen = 100;
+                            if (dNum === 0) dNum = 10;
+                            delayMs = Math.round((dNum * 1000) / dDen);
+                            if (delayMs < 10) delayMs = 20;
+                        }
+
                         const canvas = document.createElement("canvas");
                         canvas.width = frameImg.width;
                         canvas.height = frameImg.height;
                         const ctx = canvas.getContext("2d");
                         ctx.drawImage(frameImg, 0, 0);
                         const imgData = ctx.getImageData(0, 0, frameImg.width, frameImg.height);
-                        gifEncoder.addFrame(imgData, 100);
+                        gifEncoder.addFrame(imgData, delayMs);
                     }
                     const gifBytes = gifEncoder.finish();
                     restoredBlob = new Blob([gifBytes], { type: "image/gif" });
