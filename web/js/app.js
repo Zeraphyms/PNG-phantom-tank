@@ -245,8 +245,13 @@ document.addEventListener("DOMContentLoaded", () => {
         parts.push(ApngCodec.chunkBytes("acTL", actl));
 
         // tEXt marker
-        let markerStr = `ChatBarApngDisguise\01;STATIC;1`;
-        parts.push(ApngCodec.chunkBytes("tEXt", new TextEncoder().encode(markerStr)));
+        let keyBytes = new TextEncoder().encode("ChatBarApngDisguise");
+        let valBytes = new TextEncoder().encode("1;STATIC;1");
+        let textPayload = new Uint8Array(keyBytes.length + 1 + valBytes.length);
+        textPayload.set(keyBytes, 0);
+        textPayload[keyBytes.length] = 0; // null separator
+        textPayload.set(valBytes, keyBytes.length + 1);
+        parts.push(ApngCodec.chunkBytes("tEXt", textPayload));
 
         // Default frame IDATs
         for (let p of coverIdats) {
