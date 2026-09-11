@@ -55,6 +55,7 @@ public class MainActivity extends Activity {
 
     private static final String PREF_NAME = "png_disguise_prefs";
     private static final String KEY_PERSIST_COVER = "persist_cover";
+    private static final String KEY_BG_COLOR = "bg_color";
     private static final String SAVED_COVER_FILENAME = "saved_custom_cover.png";
 
     private TextView tabDisguise;
@@ -217,6 +218,10 @@ public class MainActivity extends Activity {
     }
 
     private void setupColorSelector() {
+        SharedPreferences sp = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
+        String savedKey = sp.getString(KEY_BG_COLOR, "black");
+        applyPaddingColor(savedKey, false);
+
         btnColorBlack.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) { selectPaddingColor(Color.BLACK, "纯黑色", "black"); }
         });
@@ -237,48 +242,81 @@ public class MainActivity extends Activity {
         });
     }
 
-    private void selectPaddingColor(int color, String name, String key) {
-        selectedBgColor = color;
-        tvSelectedColorName.setText("当前: " + name);
-
-        // Reset all dots to unselected
-        dotColorBlack.setBackgroundResource(R.drawable.color_dot_black);
-        dotColorWhite.setBackgroundResource(R.drawable.color_dot_white);
-        dotColorRed.setBackgroundResource(R.drawable.color_dot_red);
-        dotColorGreen.setBackgroundResource(R.drawable.color_dot_green);
-        dotColorBlue.setBackgroundResource(R.drawable.color_dot_blue);
-        dotColorYellow.setBackgroundResource(R.drawable.color_dot_yellow);
-
-        int primaryColor = getResources().getColor(R.color.primary);
-        int secondaryColor = getResources().getColor(R.color.text_secondary);
-
-        lblColorBlack.setTextColor(secondaryColor); lblColorBlack.setTypeface(null, android.graphics.Typeface.NORMAL);
-        lblColorWhite.setTextColor(secondaryColor); lblColorWhite.setTypeface(null, android.graphics.Typeface.NORMAL);
-        lblColorRed.setTextColor(secondaryColor); lblColorRed.setTypeface(null, android.graphics.Typeface.NORMAL);
-        lblColorGreen.setTextColor(secondaryColor); lblColorGreen.setTypeface(null, android.graphics.Typeface.NORMAL);
-        lblColorBlue.setTextColor(secondaryColor); lblColorBlue.setTypeface(null, android.graphics.Typeface.NORMAL);
-        lblColorYellow.setTextColor(secondaryColor); lblColorYellow.setTypeface(null, android.graphics.Typeface.NORMAL);
-
-        if ("black".equals(key)) {
-            dotColorBlack.setBackgroundResource(R.drawable.color_dot_black_selected);
-            lblColorBlack.setTextColor(primaryColor); lblColorBlack.setTypeface(null, android.graphics.Typeface.BOLD);
-        } else if ("white".equals(key)) {
-            dotColorWhite.setBackgroundResource(R.drawable.color_dot_white_selected);
-            lblColorWhite.setTextColor(primaryColor); lblColorWhite.setTypeface(null, android.graphics.Typeface.BOLD);
+    private void applyPaddingColor(String key, boolean showToast) {
+        int color = Color.BLACK;
+        String name = "纯黑色";
+        if ("white".equals(key)) {
+            color = Color.WHITE;
+            name = "纯白色";
         } else if ("red".equals(key)) {
-            dotColorRed.setBackgroundResource(R.drawable.color_dot_red_selected);
-            lblColorRed.setTextColor(primaryColor); lblColorRed.setTypeface(null, android.graphics.Typeface.BOLD);
+            color = Color.parseColor("#EF4444");
+            name = "喜庆红";
         } else if ("green".equals(key)) {
-            dotColorGreen.setBackgroundResource(R.drawable.color_dot_green_selected);
-            lblColorGreen.setTextColor(primaryColor); lblColorGreen.setTypeface(null, android.graphics.Typeface.BOLD);
+            color = Color.parseColor("#10B981");
+            name = "护眼绿";
         } else if ("blue".equals(key)) {
-            dotColorBlue.setBackgroundResource(R.drawable.color_dot_blue_selected);
-            lblColorBlue.setTextColor(primaryColor); lblColorBlue.setTypeface(null, android.graphics.Typeface.BOLD);
+            color = Color.parseColor("#2563EB");
+            name = "经典蓝";
         } else if ("yellow".equals(key)) {
-            dotColorYellow.setBackgroundResource(R.drawable.color_dot_yellow_selected);
-            lblColorYellow.setTextColor(primaryColor); lblColorYellow.setTypeface(null, android.graphics.Typeface.BOLD);
+            color = Color.parseColor("#FACC15");
+            name = "明亮黄";
+        } else {
+            key = "black";
         }
-        Toast.makeText(this, "已设置补齐底色为: " + name, Toast.LENGTH_SHORT).show();
+
+        selectedBgColor = color;
+        if (tvSelectedColorName != null) {
+            tvSelectedColorName.setText("当前: " + name);
+        }
+
+        if (dotColorBlack != null) {
+            dotColorBlack.setBackgroundResource(R.drawable.color_dot_black);
+            dotColorWhite.setBackgroundResource(R.drawable.color_dot_white);
+            dotColorRed.setBackgroundResource(R.drawable.color_dot_red);
+            dotColorGreen.setBackgroundResource(R.drawable.color_dot_green);
+            dotColorBlue.setBackgroundResource(R.drawable.color_dot_blue);
+            dotColorYellow.setBackgroundResource(R.drawable.color_dot_yellow);
+
+            int primaryColor = getResources().getColor(R.color.primary);
+            int secondaryColor = getResources().getColor(R.color.text_secondary);
+
+            lblColorBlack.setTextColor(secondaryColor); lblColorBlack.setTypeface(null, android.graphics.Typeface.NORMAL);
+            lblColorWhite.setTextColor(secondaryColor); lblColorWhite.setTypeface(null, android.graphics.Typeface.NORMAL);
+            lblColorRed.setTextColor(secondaryColor); lblColorRed.setTypeface(null, android.graphics.Typeface.NORMAL);
+            lblColorGreen.setTextColor(secondaryColor); lblColorGreen.setTypeface(null, android.graphics.Typeface.NORMAL);
+            lblColorBlue.setTextColor(secondaryColor); lblColorBlue.setTypeface(null, android.graphics.Typeface.NORMAL);
+            lblColorYellow.setTextColor(secondaryColor); lblColorYellow.setTypeface(null, android.graphics.Typeface.NORMAL);
+
+            if ("black".equals(key)) {
+                dotColorBlack.setBackgroundResource(R.drawable.color_dot_black_selected);
+                lblColorBlack.setTextColor(primaryColor); lblColorBlack.setTypeface(null, android.graphics.Typeface.BOLD);
+            } else if ("white".equals(key)) {
+                dotColorWhite.setBackgroundResource(R.drawable.color_dot_white_selected);
+                lblColorWhite.setTextColor(primaryColor); lblColorWhite.setTypeface(null, android.graphics.Typeface.BOLD);
+            } else if ("red".equals(key)) {
+                dotColorRed.setBackgroundResource(R.drawable.color_dot_red_selected);
+                lblColorRed.setTextColor(primaryColor); lblColorRed.setTypeface(null, android.graphics.Typeface.BOLD);
+            } else if ("green".equals(key)) {
+                dotColorGreen.setBackgroundResource(R.drawable.color_dot_green_selected);
+                lblColorGreen.setTextColor(primaryColor); lblColorGreen.setTypeface(null, android.graphics.Typeface.BOLD);
+            } else if ("blue".equals(key)) {
+                dotColorBlue.setBackgroundResource(R.drawable.color_dot_blue_selected);
+                lblColorBlue.setTextColor(primaryColor); lblColorBlue.setTypeface(null, android.graphics.Typeface.BOLD);
+            } else if ("yellow".equals(key)) {
+                dotColorYellow.setBackgroundResource(R.drawable.color_dot_yellow_selected);
+                lblColorYellow.setTextColor(primaryColor); lblColorYellow.setTypeface(null, android.graphics.Typeface.BOLD);
+            }
+        }
+
+        if (showToast) {
+            Toast.makeText(this, "已设置并保存底色为: " + name + " (重启依然生效)", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void selectPaddingColor(int color, String name, String key) {
+        SharedPreferences sp = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
+        sp.edit().putString(KEY_BG_COLOR, key).apply();
+        applyPaddingColor(key, true);
     }
 
     private void setupTabs() {
