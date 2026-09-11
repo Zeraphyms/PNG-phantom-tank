@@ -1,7 +1,6 @@
 name = "png-phantom-tank"
 compatibility_date = "2026-09-11"
 
-# Cloudflare Workers 静态资源托管配置 (Assets)
+# 纯静态资源网站（Assets-only Worker），不需要 binding
 [assets]
 directory = "./web"
-binding = "ASSETS"
