@@ -222,12 +222,12 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         // 导出封面 PNG IDAT 与原图 PNG IDAT
-        const coverPngBlob = await canvasToPngBlob(coverCanvas);
+        const coverPngBlob = await elementToPngBlob(coverCanvas);
         const coverBuf = new Uint8Array(await coverPngBlob.arrayBuffer());
         const coverChunks = ApngCodec.parseChunks(coverBuf);
         const coverIdats = coverChunks.filter(c => c.type === "IDAT").map(c => c.payload);
 
-        const srcPngBlob = await canvasToPngBlob(srcImg);
+        const srcPngBlob = await elementToPngBlob(srcImg);
         const srcBuf = new Uint8Array(await srcPngBlob.arrayBuffer());
         const srcChunks = ApngCodec.parseChunks(srcBuf);
         const srcIdats = srcChunks.filter(c => c.type === "IDAT").map(c => c.payload);
@@ -298,7 +298,7 @@ document.addEventListener("DOMContentLoaded", () => {
         // 1x1 透明像素
         let hbCanvas = document.createElement("canvas");
         hbCanvas.width = 1; hbCanvas.height = 1;
-        let hbBlob = await canvasToPngBlob(hbCanvas);
+        let hbBlob = await elementToPngBlob(hbCanvas);
         let hbBuf = new Uint8Array(await hbBlob.arrayBuffer());
         let hbIdat = ApngCodec.parseChunks(hbBuf).find(c => c.type === "IDAT").payload;
         let hbFdat = new Uint8Array(4 + hbIdat.length);
@@ -594,7 +594,16 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    function canvasToPngBlob(canvas) {
+    function elementToPngBlob(drawable) {
+        if (drawable instanceof HTMLCanvasElement) {
+            return new Promise(resolve => drawable.toBlob(resolve, "image/png"));
+        }
+        // If it is an HTMLImageElement or similar
+        const canvas = document.createElement("canvas");
+        canvas.width = drawable.naturalWidth || drawable.width;
+        canvas.height = drawable.naturalHeight || drawable.height;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(drawable, 0, 0);
         return new Promise(resolve => canvas.toBlob(resolve, "image/png"));
     }
 });
