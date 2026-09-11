@@ -176,23 +176,118 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // 伪装单张文件为 APNG
     async function disguiseSingleFile(file, coverImg, badgeNum, bgColor) {
-        // 读取原图并取得 Canvas 像素
         const isGif = file.type === "image/gif" || file.name.toLowerCase().endsWith(".gif");
+
+        if (isGif) {
+            // 解析 GIF 全部帧
+            const fileBuf = new Uint8Array(await file.arrayBuffer());
+            const reader = new GifReader(fileBuf);
+            if (!reader.frames || reader.frames.length === 0) {
+                throw new Error("GIF 动图帧解析为空");
+            }
+
+            const w = reader.width;
+            const h = reader.height;
+            const frameCount = reader.frames.length;
+
+            // 生成等尺寸底色封面图 Canvas
+            const coverCanvas = document.createElement("canvas");
+            coverCanvas.width = w;
+            coverCanvas.height = h;
+            const cctx = coverCanvas.getContext("2d");
+            cctx.fillStyle = bgColor;
+            cctx.fillRect(0, 0, w, h);
+
+            const scale = Math.min(w / coverImg.width, h / coverImg.height);
+            const dw = Math.max(1, Math.round(coverImg.width * scale));
+            const dh = Math.max(1, Math.round(coverImg.height * scale));
+            const dx = Math.round((w - dw) / 2);
+            const dy = Math.round((h - dh) / 2);
+            cctx.drawImage(coverImg, dx, dy, dw, dh);
+
+            // 绘制序号徽章
+            if (badgeNum) {
+                drawBadgeOnCanvas(cctx, w, h, badgeNum);
+            }
+
+            const coverPngBlob = await elementToPngBlob(coverCanvas);
+            const coverBuf = new Uint8Array(await coverPngBlob.arrayBuffer());
+            const coverChunks = ApngCodec.parseChunks(coverBuf);
+            const coverIdats = coverChunks.filter(c => c.type === "IDAT").map(c => c.payload);
+
+            let parts = [
+                ApngCodec.PNG_SIG,
+                ApngCodec.chunkBytes("IHDR", coverChunks.find(c => c.type === "IHDR").payload)
+            ];
+
+            // acTL (frameCount, playCount 0)
+            let actl = new Uint8Array(8);
+            new DataView(actl.buffer).setUint32(0, frameCount, false);
+            new DataView(actl.buffer).setUint32(4, 0, false);
+            parts.push(ApngCodec.chunkBytes("acTL", actl));
+
+            // tEXt marker: ANIMATED
+            let keyBytes = new TextEncoder().encode("ChatBarApngDisguise");
+            let valBytes = new TextEncoder().encode(`1;ANIMATED;${frameCount}`);
+            let textPayload = new Uint8Array(keyBytes.length + 1 + valBytes.length);
+            textPayload.set(keyBytes, 0);
+            textPayload[keyBytes.length] = 0;
+            textPayload.set(valBytes, keyBytes.length + 1);
+            parts.push(ApngCodec.chunkBytes("tEXt", textPayload));
+
+            // Default frame (cover)
+            for (let p of coverIdats) {
+                parts.push(ApngCodec.chunkBytes("IDAT", p));
+            }
+
+            let seq = 0;
+            for (let i = 0; i < frameCount; i++) {
+                const fr = reader.frames[i];
+                const frPngBlob = await elementToPngBlob(fr.canvas);
+                const frBuf = new Uint8Array(await frPngBlob.arrayBuffer());
+                const frChunks = ApngCodec.parseChunks(frBuf);
+                const frIdats = frChunks.filter(c => c.type === "IDAT").map(c => c.payload);
+
+                let delayMs = fr.delay || 100;
+                let delayNum = Math.max(1, Math.round(delayMs / 10));
+
+                let fctl = new Uint8Array(26);
+                let vf = new DataView(fctl.buffer);
+                vf.setUint32(0, seq++, false);
+                vf.setUint32(4, w, false);
+                vf.setUint32(8, h, false);
+                vf.setUint32(12, 0, false);
+                vf.setUint32(16, 0, false);
+                vf.setUint16(20, delayNum, false);
+                vf.setUint16(22, 100, false);
+                vf.setUint8(24, 0);
+                vf.setUint8(25, 0);
+                parts.push(ApngCodec.chunkBytes("fcTL", fctl));
+
+                for (let p of frIdats) {
+                    let fdat = new Uint8Array(4 + p.length);
+                    new DataView(fdat.buffer).setUint32(0, seq++, false);
+                    fdat.set(p, 4);
+                    parts.push(ApngCodec.chunkBytes("fdAT", fdat));
+                }
+            }
+
+            parts.push(ApngCodec.chunkBytes("IEND", new Uint8Array(0)));
+            return new Blob([ApngCodec.concatBuffers(parts)], { type: "image/png" });
+        }
+
+        // 静态图片处理
         const srcImg = await loadImage(URL.createObjectURL(file));
         const w = srcImg.width;
         const h = srcImg.height;
 
-        // 生成等尺寸底色封面图 Canvas
         const coverCanvas = document.createElement("canvas");
         coverCanvas.width = w;
         coverCanvas.height = h;
         const cctx = coverCanvas.getContext("2d");
-
-        // 填底色
         cctx.fillStyle = bgColor;
         cctx.fillRect(0, 0, w, h);
 
-        // 居中放置封面
         const scale = Math.min(w / coverImg.width, h / coverImg.height);
         const dw = Math.max(1, Math.round(coverImg.width * scale));
         const dh = Math.max(1, Math.round(coverImg.height * scale));
@@ -200,28 +295,10 @@ document.addEventListener("DOMContentLoaded", () => {
         const dy = Math.round((h - dh) / 2);
         cctx.drawImage(coverImg, dx, dy, dw, dh);
 
-        // 绘制徽章
         if (badgeNum) {
-            const density = Math.max(1, Math.min(w, h) / 400);
-            const size = Math.round(28 * density);
-            cctx.font = `bold ${size}px sans-serif`;
-            const text = String(badgeNum);
-            const m = cctx.measureText(text);
-            const pad = 12 * density;
-            const bw = m.width + pad * 2;
-            const bh = size + pad * 1.5;
-            const margin = 16 * density;
-
-            cctx.fillStyle = "rgba(0,0,0,0.78)";
-            cctx.beginPath();
-            cctx.roundRect(margin, margin, bw, bh, 8 * density);
-            cctx.fill();
-
-            cctx.fillStyle = "#FFFFFF";
-            cctx.fillText(text, margin + pad, margin + pad + size * 0.85);
+            drawBadgeOnCanvas(cctx, w, h, badgeNum);
         }
 
-        // 导出封面 PNG IDAT 与原图 PNG IDAT
         const coverPngBlob = await elementToPngBlob(coverCanvas);
         const coverBuf = new Uint8Array(await coverPngBlob.arrayBuffer());
         const coverChunks = ApngCodec.parseChunks(coverBuf);
@@ -232,34 +309,29 @@ document.addEventListener("DOMContentLoaded", () => {
         const srcChunks = ApngCodec.parseChunks(srcBuf);
         const srcIdats = srcChunks.filter(c => c.type === "IDAT").map(c => c.payload);
 
-        // 组装 APNG
         let parts = [
             ApngCodec.PNG_SIG,
             ApngCodec.chunkBytes("IHDR", coverChunks.find(c => c.type === "IHDR").payload)
         ];
 
-        // acTL (2 frames, playCount 0)
         let actl = new Uint8Array(8);
         new DataView(actl.buffer).setUint32(0, 2, false);
         new DataView(actl.buffer).setUint32(4, 0, false);
         parts.push(ApngCodec.chunkBytes("acTL", actl));
 
-        // tEXt marker
         let keyBytes = new TextEncoder().encode("ChatBarApngDisguise");
         let valBytes = new TextEncoder().encode("1;STATIC;1");
         let textPayload = new Uint8Array(keyBytes.length + 1 + valBytes.length);
         textPayload.set(keyBytes, 0);
-        textPayload[keyBytes.length] = 0; // null separator
+        textPayload[keyBytes.length] = 0;
         textPayload.set(valBytes, keyBytes.length + 1);
         parts.push(ApngCodec.chunkBytes("tEXt", textPayload));
 
-        // Default frame IDATs
         for (let p of coverIdats) {
             parts.push(ApngCodec.chunkBytes("IDAT", p));
         }
 
         let seq = 0;
-        // Frame 1 fcTL
         let fctl1 = new Uint8Array(26);
         let vf1 = new DataView(fctl1.buffer);
         vf1.setUint32(0, seq++, false);
@@ -269,11 +341,10 @@ document.addEventListener("DOMContentLoaded", () => {
         vf1.setUint32(16, 0, false);
         vf1.setUint16(20, 10, false);
         vf1.setUint16(22, 100, false);
-        vf1.setUint8(24, 0); // dispose
-        vf1.setUint8(25, 0); // blend
+        vf1.setUint8(24, 0);
+        vf1.setUint8(25, 0);
         parts.push(ApngCodec.chunkBytes("fcTL", fctl1));
 
-        // Frame 1 fdATs
         for (let p of srcIdats) {
             let fdat = new Uint8Array(4 + p.length);
             new DataView(fdat.buffer).setUint32(0, seq++, false);
@@ -281,7 +352,7 @@ document.addEventListener("DOMContentLoaded", () => {
             parts.push(ApngCodec.chunkBytes("fdAT", fdat));
         }
 
-        // Frame 2: 1x1 透明心跳保活帧 (blend_op = 1)
+        // 心跳保活帧
         let fctl2 = new Uint8Array(26);
         let vf2 = new DataView(fctl2.buffer);
         vf2.setUint32(0, seq++, false);
@@ -295,7 +366,6 @@ document.addEventListener("DOMContentLoaded", () => {
         vf2.setUint8(25, 1);
         parts.push(ApngCodec.chunkBytes("fcTL", fctl2));
 
-        // 1x1 透明像素
         let hbCanvas = document.createElement("canvas");
         hbCanvas.width = 1; hbCanvas.height = 1;
         let hbBlob = await elementToPngBlob(hbCanvas);
@@ -307,8 +377,27 @@ document.addEventListener("DOMContentLoaded", () => {
         parts.push(ApngCodec.chunkBytes("fdAT", hbFdat));
 
         parts.push(ApngCodec.chunkBytes("IEND", new Uint8Array(0)));
-
         return new Blob([ApngCodec.concatBuffers(parts)], { type: "image/png" });
+    }
+
+    function drawBadgeOnCanvas(cctx, w, h, badgeNum) {
+        const density = Math.max(1, Math.min(w, h) / 400);
+        const size = Math.round(28 * density);
+        cctx.font = `bold ${size}px sans-serif`;
+        const text = String(badgeNum);
+        const m = cctx.measureText(text);
+        const pad = 12 * density;
+        const bw = m.width + pad * 2;
+        const bh = size + pad * 1.5;
+        const margin = 16 * density;
+
+        cctx.fillStyle = "rgba(0,0,0,0.78)";
+        cctx.beginPath();
+        cctx.roundRect(margin, margin, bw, bh, 8 * density);
+        cctx.fill();
+
+        cctx.fillStyle = "#FFFFFF";
+        cctx.fillText(text, margin + pad, margin + pad + size * 0.85);
     }
 
     // 6. 还原功能
