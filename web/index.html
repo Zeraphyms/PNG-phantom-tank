@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>APNG 图片伪装工具 - 纯前端免登录版</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div class="app-container">
+  <!-- 头部 -->
+  <header class="app-header">
+    <div class="app-title">APNG 伪装工具</div>
+    <div class="app-badge">Web v1.4.1 (免登录纯净版)</div>
+  </header>
+
+  <!-- Tab 栏 -->
+  <div class="tab-container">
+    <div class="tab-bar">
+      <button class="tab-btn active" data-tab="page-disguise">图片伪装</button>
+      <button class="tab-btn" data-tab="page-restore">还原真图</button>
+      <button class="tab-btn" data-tab="page-history">历史记录</button>
+      <button class="tab-btn" data-tab="page-help">使用说明</button>
+    </div>
+  </div>
+
+  <!-- 内容区 -->
+  <main class="content-area">
+
+    <!-- PAGE 1: 图片伪装 -->
+    <section id="page-disguise" class="tab-page active">
+      <!-- 1. 选择真实图片 -->
+      <div class="card">
+        <div class="card-title">1. 选择要伪装的真实图片 (支持多选)</div>
+        <div class="card-desc">支持单张或批量多选 JPG、PNG、WEBP 静态图与 GIF 动图</div>
+        <div class="upload-box" id="box-src-upload">
+          <input type="file" id="input-src-images" accept="image/*" multiple style="display: none;">
+          <div class="upload-icon">🖼️</div>
+          <div class="upload-text">点击或拖拽图片到这里 (可多选)</div>
+          <div class="upload-hint">手机相册中支持长按批量多选</div>
+          <img id="img-src-preview" class="file-preview-img" alt="原图预览">
+        </div>
+        <div id="badge-src-info" class="file-info-badge"></div>
+      </div>
+
+      <!-- 2. 伪装封面设置 -->
+      <div class="card">
+        <div class="card-title">
+          <span>2. 伪装封面 (对方未点开时所见)</span>
+          <button id="btn-reset-cover" class="btn-outline" style="padding: 2px 8px; font-size: 11px;">恢复默认</button>
+        </div>
+        <div class="cover-row">
+          <img id="img-cover-thumb" class="cover-thumb" src="assets/default_cover.png" alt="封面">
+          <div class="cover-info">
+            <div id="txt-cover-status" class="cover-status">内置官方经典蓝色封面 (默认)</div>
+            <div class="cover-btns">
+              <input type="file" id="input-custom-cover" accept="image/*" style="display: none;">
+              <button id="btn-pick-cover" class="btn-outline">更换自定义封面</button>
+              <button id="btn-save-cover" class="btn-outline">💾 保存当前封面</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. 补齐底色设置 -->
+      <div class="card">
+        <div class="card-title">
+          <span>3. 封面补齐底色 (自适应留白)</span>
+          <span id="txt-selected-color-name" style="color: #2563EB; font-size: 12px;">当前: 纯黑色</span>
+        </div>
+        <div class="card-desc">当原图尺寸大于或宽高比不同于封面时，四周将使用所选底色进行留白补齐：</div>
+        <div class="color-selector">
+          <div class="color-item selected" data-color="#000000" data-name="纯黑色" data-key="black">
+            <div class="color-dot" style="background: #000000;"></div>
+            <div class="color-label">黑色</div>
+          </div>
+          <div class="color-item" data-color="#FFFFFF" data-name="纯白色" data-key="white">
+            <div class="color-dot" style="background: #FFFFFF;"></div>
+            <div class="color-label">白色</div>
+          </div>
+          <div class="color-item" data-color="#EF4444" data-name="喜庆红" data-key="red">
+            <div class="color-dot" style="background: #EF4444;"></div>
+            <div class="color-label">红色</div>
+          </div>
+          <div class="color-item" data-color="#10B981" data-name="护眼绿" data-key="green">
+            <div class="color-dot" style="background: #10B981;"></div>
+            <div class="color-label">绿色</div>
+          </div>
+          <div class="color-item" data-color="#2563EB" data-name="经典蓝" data-key="blue">
+            <div class="color-dot" style="background: #2563EB;"></div>
+            <div class="color-label">蓝色</div>
+          </div>
+          <div class="color-item" data-color="#FACC15" data-name="明亮黄" data-key="yellow">
+            <div class="color-dot" style="background: #FACC15;"></div>
+            <div class="color-label">黄色</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 伪装按钮 -->
+      <button id="btn-do-disguise" class="btn-primary-large">⚡ 立即生成 APNG 伪装图片</button>
+
+      <!-- 伪装结果展示 -->
+      <div id="card-disguise-result" class="card result-card">
+        <div class="card-title" id="txt-disguise-title">🎉 伪装生成成功 (双重视角预览)</div>
+        <div class="preview-grid">
+          <div class="preview-box">
+            <div class="preview-box-title">对方视角(聊天列表/缩略图)</div>
+            <img id="img-result-cover" class="preview-img" alt="对方视角">
+          </div>
+          <div class="preview-box">
+            <div class="preview-box-title">真实内容(点开/还原所见)</div>
+            <img id="img-result-real" class="preview-img" alt="真实内容">
+          </div>
+        </div>
+        <div id="txt-disguise-summary" class="card-desc" style="margin-top: 10px; margin-bottom: 0;"></div>
+        <div class="action-row">
+          <button id="btn-download-disguise" class="btn-primary-large" style="margin-top: 0;">💾 全部下载保存</button>
+          <button id="btn-share-disguise" class="btn-outline">🚀 调用系统分享</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- PAGE 2: 还原真图 -->
+    <section id="page-restore" class="tab-page">
+      <div class="card">
+        <div class="card-title">选择收到的伪装图片 (支持多选)</div>
+        <div class="card-desc">选择在聊天软件中保存下来的伪装 .png 文件进行提取还原</div>
+        <div class="upload-box" id="box-restore-upload">
+          <input type="file" id="input-restore-images" accept="image/*" multiple style="display: none;">
+          <div class="upload-icon">🔍</div>
+          <div class="upload-text">点击或拖拽伪装文件到这里</div>
+          <div class="upload-hint">支持一次性选择多个伪装图片文件批量提取</div>
+          <img id="img-restore-src-preview" class="file-preview-img" alt="已选预览">
+        </div>
+        <div id="badge-restore-info" class="file-info-badge"></div>
+      </div>
+
+      <!-- 还原按钮 -->
+      <button id="btn-do-restore" class="btn-primary-large">🔍 立即还原真实图片 / 动图</button>
+
+      <!-- 还原结果展示 -->
+      <div id="card-restore-result" class="card result-card">
+        <div class="card-title" id="txt-restore-title">✨ 成功提取还原真实图片</div>
+        <div style="text-align: center; margin-top: 10px;">
+          <img id="img-restored-preview" class="preview-img" style="height: 200px;" alt="还原真图">
+        </div>
+        <div id="txt-restore-summary" class="card-desc" style="margin-top: 10px; margin-bottom: 0;"></div>
+        <div class="action-row">
+          <button id="btn-download-restored" class="btn-primary-large" style="margin-top: 0;">💾 全部下载到本地</button>
+          <button id="btn-share-restored" class="btn-outline">🚀 调用系统分享</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- PAGE 3: 历史记录 -->
+    <section id="page-history" class="tab-page">
+      <div class="card">
+        <div class="card-title">
+          <div>📁 本地离线缓存管理</div>
+          <button id="btn-clear-history" class="btn-outline btn-outline-danger" style="padding: 2px 8px; font-size: 11px;">🗑️ 清空所有记录</button>
+        </div>
+        <div id="txt-history-stat" class="card-desc" style="margin-bottom: 0;">当前已记录 0 个文件 (占用 0 B 浏览器本地存储)</div>
+      </div>
+
+      <div id="list-history-container">
+        <!-- 动态渲染历史列表 -->
+      </div>
+    </section>
+
+    <!-- PAGE 4: 使用说明 -->
+    <section id="page-help" class="tab-page">
+      <div class="card">
+        <div class="card-title">👨‍💻 开发者与开源项目</div>
+        <div class="card-desc" style="margin-top: 6px;">
+          本软件由 Zeraphyms 所制<br>
+          GitHub 仓库: <a href="https://github.com/Zeraphyms/PNG-phantom-tank" target="_blank" style="color: #2563EB;">https://github.com/Zeraphyms/PNG-phantom-tank</a>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">📌 工作原理</div>
+        <div class="card-desc" style="margin-top: 6px; line-height: 1.6;">
+          本工具采用 <strong>APNG (Animated Portable Network Graphics) 特殊隐写机制</strong>：<br>
+          • <strong>默认静止帧 (IDAT)</strong>：写入伪装封面图片。<br>
+          • <strong>隐藏动画帧 (fcTL+fdAT)</strong>：写入你的真实原图或动态 GIF。<br>
+          • 聊天软件在相册缩略列表中只能看到封面；对方点开或使用本工具点击「还原真图」即可查看和提取完整真实内容。
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title" style="color: #DC2626;">⚠️ 发送到 QQ / 微信重要提醒</div>
+        <div class="card-desc" style="margin-top: 6px; line-height: 1.6; color: #475569;">
+          • QQ/微信以默认「普通图片」方式发送会进行二次有损转码，剔除动画扩展帧导致隐藏内容丢失！<br>
+          • <strong>正确发送方式</strong>：<br>
+          1. 手机 QQ 发图时务必勾选<strong>【原图】</strong>；或点击加号以<strong>【文件】</strong>形式发送 .png 文件。<br>
+          2. 对方保存文件后打开本网页点击「还原真图」，即可无损提取出原图 / 动图！
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">🔒 纯本地安全与隐私</div>
+        <div class="card-desc" style="margin-top: 6px; color: #059669;">
+          • 100% 纯本地浏览器端处理，所有图片合成与还原均在您的手机/电脑内存中完成，<strong>绝不上载任何外部服务器</strong>，安全保密。
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- 大图查看 Modal -->
+<div id="modal-preview" class="modal-mask">
+  <img id="modal-img" class="modal-content" src="" alt="大图">
+</div>
+
+<!-- 依赖脚本 -->
+<script src="js/ApngCodec.js"></script>
+<script src="js/WebGIFEncoder.js"></script>
+<script src="js/MiniZlib.js"></script>
+<script src="js/app.js"></script>
+
+</body>
+</html>
