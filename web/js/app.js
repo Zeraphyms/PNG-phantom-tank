@@ -7,6 +7,8 @@ document.addEventListener("DOMContentLoaded", () => {
     let lastDisguisedResults = []; // { blob, filename, url }
     let lastRestoredResults = []; // { blob, filename, url, format }
     let restoreFiles = [];
+    let splitFiles = [];
+    let lastSplitResults = []; // { blob, filename, url }
 
     // DOM
     const tabBtns = document.querySelectorAll(".tab-btn");
@@ -424,9 +426,18 @@ document.addEventListener("DOMContentLoaded", () => {
             const buf = new Uint8Array(await first.arrayBuffer());
             const info = ApngCodec.inspectDisguise(buf);
             if (info) {
-                const isAnim = info.meta.kind === "ANIMATED" || info.meta.count >= 5;
-                const kindStr = info.meta.kind === "ANIMATED" ? "动图隐写" : (info.meta.kind === "STATIC" ? "静态隐写" : "标准隐藏帧");
-                badge.textContent = `✔ 识别为伪装 APNG (${kindStr}, 隐藏${info.meta.count}帧, 尺寸 ${info.width}x${info.height}, 将还原为 ${isAnim ? "GIF 动图" : "PNG 图片"})`;
+                const groups = ApngCodec.extractFrameGroups(info.chunks);
+                const realFrameCount = ApngCodec.countHiddenFrames(groups);
+                const isAnim = info.meta.kind === "ANIMATED" || realFrameCount >= 2;
+                let kindStr;
+                if (info.meta.kind === "ANIMATED" || isAnim) {
+                    kindStr = "动态隐写";
+                } else if (info.meta.kind === "STATIC") {
+                    kindStr = "静态隐写";
+                } else {
+                    kindStr = "标准隐藏帧";
+                }
+                badge.textContent = `✔ 识别为伪装 APNG (${kindStr}, 隐藏${realFrameCount}帧, 尺寸 ${info.width}x${info.height}, 将还原为 ${isAnim ? "GIF 动图" : "PNG 图片"})`;
                 badge.style.color = "#059669";
             } else {
                 badge.textContent = `已选 ${restoreFiles.length} 个文件准备提取`;
@@ -460,7 +471,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 if (groups.length === 0) continue;
 
                 const ihdr = info.chunks.find(c => c.type === "IHDR").payload;
-                const isAnim = info.meta.kind === "ANIMATED" || groups.length >= 5;
+                const realFrameCount = ApngCodec.countHiddenFrames(groups);
+                const isAnim = info.meta.kind === "ANIMATED" || realFrameCount >= 2;
 
                 let restoredBlob = null;
                 let format = "png";
@@ -535,6 +547,93 @@ document.addEventListener("DOMContentLoaded", () => {
             btn.textContent = "🔍 立即还原真实图片 / 动图";
         }
     });
+
+    // 6.5 拆解动图功能
+    const boxSplit = document.getElementById("box-split-upload");
+    const inputSplit = document.getElementById("input-split-images");
+    boxSplit.addEventListener("click", () => inputSplit.click());
+
+    inputSplit.addEventListener("change", (e) => {
+        if (e.target.files && e.target.files.length > 0) {
+            splitFiles = Array.from(e.target.files);
+            const first = splitFiles[0];
+            const url = URL.createObjectURL(first);
+            const preview = document.getElementById("img-split-src-preview");
+            preview.src = url;
+            preview.style.display = "block";
+            boxSplit.querySelector(".upload-icon").style.display = "none";
+            boxSplit.querySelector(".upload-text").style.display = "none";
+            boxSplit.querySelector(".upload-hint").style.display = "none";
+
+            const badge = document.getElementById("badge-split-info");
+            badge.style.display = "block";
+            badge.textContent = `已选 ${splitFiles.length} 个 GIF 动图准备拆解`;
+            badge.style.color = "#475569";
+            document.getElementById("card-split-result").style.display = "none";
+        }
+    });
+
+    document.getElementById("btn-do-split").addEventListener("click", async () => {
+        if (!splitFiles || splitFiles.length === 0) {
+            alert("请先选择要拆解的 GIF 动图");
+            return;
+        }
+
+        const btn = document.getElementById("btn-do-split");
+        btn.disabled = true;
+        btn.textContent = "⏳ 正在拆解动图中...";
+
+        try {
+            lastSplitResults = [];
+            const timeBase = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14);
+
+            for (let i = 0; i < splitFiles.length; i++) {
+                const file = splitFiles[i];
+                const isGif = file.type === "image/gif" || file.name.toLowerCase().endsWith(".gif");
+                if (!isGif) continue;
+
+                const fileBuf = new Uint8Array(await file.arrayBuffer());
+                const reader = new GifReader(fileBuf);
+                if (!reader.frames || reader.frames.length === 0) {
+                    throw new Error(`未从 ${file.name} 解析出任何帧`);
+                }
+
+                const baseName = file.name.replace(/\.gif$/i, "");
+                for (let f = 0; f < reader.frames.length; f++) {
+                    const frame = reader.frames[f];
+                    const frameBlob = await elementToPngBlob(frame.canvas);
+                    const filename = `${String(i + 1).padStart(3, "0")}_${baseName}_frame_${String(f + 1).padStart(3, "0")}.png`;
+                    const frameUrl = URL.createObjectURL(frameBlob);
+                    lastSplitResults.push({ blob: frameBlob, filename, url: frameUrl });
+                }
+            }
+
+            if (lastSplitResults.length === 0) {
+                alert("未能从所选文件中解析出有效动图帧");
+                return;
+            }
+
+            const grid = document.getElementById("split-frame-grid");
+            grid.innerHTML = "";
+            lastSplitResults.forEach((item, idx) => {
+                const el = document.createElement("div");
+                el.className = "split-frame-item";
+                el.innerHTML = `<img src="${item.url}" alt="frame"><div class="split-frame-label">${item.filename}</div>`;
+                grid.appendChild(el);
+            });
+
+            document.getElementById("card-split-result").style.display = "block";
+            document.getElementById("txt-split-title").textContent = `✂️ 动图拆解完成 (共 ${lastSplitResults.length} 帧)`;
+            document.getElementById("txt-split-summary").textContent = `成功拆解 ${splitFiles.length} 个 GIF 动图，共提取 ${lastSplitResults.length} 张 PNG 帧图片`;
+        } catch (err) {
+            alert("拆解失败: " + err.message);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = "✂️ 立即拆解 GIF 动图";
+        }
+    });
+
+    document.getElementById("btn-download-split").addEventListener("click", () => downloadAll(lastSplitResults));
 
     // 7. 下载与分享按钮
     document.getElementById("btn-download-disguise").addEventListener("click", () => downloadAll(lastDisguisedResults));

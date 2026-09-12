@@ -154,7 +154,21 @@ class ApngCodec {
                 }
             }
         }
+        // 过滤末尾 1x1 心跳保活帧，避免把它当成真实隐藏帧
+        if (groups.length > 0 && ApngCodec.isHeartbeatFrame(groups[groups.length - 1])) {
+            groups.pop();
+        }
         return groups;
+    }
+
+    static isHeartbeatFrame(group) {
+        if (!group.fcTL || group.fcTL.length < 12) return false;
+        let v = new DataView(group.fcTL.buffer, group.fcTL.byteOffset, group.fcTL.byteLength);
+        return v.getUint32(4, false) === 1 && v.getUint32(8, false) === 1;
+    }
+
+    static countHiddenFrames(groups) {
+        return groups.filter(g => !ApngCodec.isHeartbeatFrame(g)).length;
     }
 
     static frameGroupToPng(ihdrPayload, group) {

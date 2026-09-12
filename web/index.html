@@ -20,6 +20,7 @@
     <div class="tab-bar">
       <button class="tab-btn active" data-tab="page-disguise">图片伪装</button>
       <button class="tab-btn" data-tab="page-restore">还原真图</button>
+      <button class="tab-btn" data-tab="page-split">拆解动图</button>
       <button class="tab-btn" data-tab="page-history">历史记录</button>
       <button class="tab-btn" data-tab="page-help">使用说明</button>
     </div>
@@ -155,6 +156,34 @@
     </section>
 
     <!-- PAGE 3: 历史记录 -->
+    <!-- PAGE 3: 拆解动图 -->
+    <section id="page-split" class="tab-page">
+      <div class="card">
+        <div class="card-title">拆解 GIF 动图 (支持多选)</div>
+        <div class="card-desc">将 GIF 动图逐帧拆解为 PNG 图片，可一键保存全部帧</div>
+        <div class="upload-box" id="box-split-upload">
+          <input type="file" id="input-split-images" accept="image/gif,.gif" multiple style="display: none;">
+          <div class="upload-icon">🎞️</div>
+          <div class="upload-text">点击或拖拽 GIF 动图到这里</div>
+          <div class="upload-hint">支持一次性选择多个 GIF 动图批量拆解</div>
+          <img id="img-split-src-preview" class="file-preview-img" alt="动图预览">
+        </div>
+        <div id="badge-split-info" class="file-info-badge"></div>
+      </div>
+
+      <button id="btn-do-split" class="btn-primary-large">✂️ 立即拆解 GIF 动图</button>
+
+      <div id="card-split-result" class="card result-card">
+        <div class="card-title" id="txt-split-title">✂️ 动图拆解完成</div>
+        <div id="split-frame-grid" class="split-frame-grid"></div>
+        <div id="txt-split-summary" class="card-desc" style="margin-top: 10px; margin-bottom: 0;"></div>
+        <div class="action-row">
+          <button id="btn-download-split" class="btn-primary-large" style="margin-top: 0;">💾 一键保存全部帧</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- PAGE 4: 历史记录 -->
     <section id="page-history" class="tab-page">
       <div class="card">
         <div class="card-title">
@@ -169,7 +198,7 @@
       </div>
     </section>
 
-    <!-- PAGE 4: 使用说明 -->
+    <!-- PAGE 5: 使用说明 -->
     <section id="page-help" class="tab-page">
       <div class="card">
         <div class="card-title">👨‍💻 开发者与开源项目</div>

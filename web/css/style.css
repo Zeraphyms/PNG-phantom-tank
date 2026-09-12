@@ -63,10 +63,17 @@ body {
   background: #EEF2F6;
   border-radius: 10px;
   padding: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tab-bar::-webkit-scrollbar {
+  display: none;
 }
 
 .tab-btn {
-  flex: 1;
+  flex: 1 0 auto;
+  min-width: 72px;
   border: none;
   background: transparent;
   padding: 8px 0;
@@ -347,6 +354,36 @@ body {
 
 .action-row button {
   flex: 1;
+}
+
+/* 拆解动图帧网格 */
+.split-frame-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.split-frame-item {
+  text-align: center;
+}
+
+.split-frame-item img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: contain;
+  background: #000000;
+  border-radius: 8px;
+  border: 1px solid #E2E8F0;
+}
+
+.split-frame-label {
+  font-size: 11px;
+  color: #64748B;
+  margin-top: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* 历史列表 */
