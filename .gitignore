@@ -12,3 +12,17 @@ local.properties
 # Intermediate extracted folders if any
 png.exe_extracted/
 *.idsig
+
+# Workspace-local toolchain and build cache
+/build/
+
+# Built standalone APK files
+*.apk
+
+# Old workspace copies and audit snapshots
+/1/
+.feature-audit/
+
+# Chrome automation test profiles
+.chrome-test/
+.chrome-test2/
