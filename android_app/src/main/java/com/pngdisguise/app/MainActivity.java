@@ -744,6 +744,7 @@ public class MainActivity extends Activity {
                     lastRestoredBytesList.clear();
                     lastRestoredFormatsList.clear();
                     lastRestoredFileList.clear();
+                    firstRestoredBitmap = null;
 
                     File cacheDir = getExternalFilesDir(Environment.DIRECTORY_PICTURES);
                     if (cacheDir == null) cacheDir = getFilesDir();

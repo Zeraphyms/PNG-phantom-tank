@@ -6,6 +6,7 @@ __pycache__/
 
 # Android build outputs
 android_app/build/
+android_app/build-new/
 .gradle/
 local.properties
 
