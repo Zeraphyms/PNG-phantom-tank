@@ -247,7 +247,7 @@
                                 android:id="@+id/tv_cover_status"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:text="内置官方经典蓝色封面"
+                                android:text="内置默认封面"
                                 android:textColor="@color/text_secondary"
                                 android:textSize="13sp" />
 

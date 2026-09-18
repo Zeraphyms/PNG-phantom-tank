@@ -384,7 +384,7 @@ public class MainActivity extends Activity {
         if (defaultCoverBitmap != null) {
             ivCoverThumb.setImageBitmap(defaultCoverBitmap);
         }
-        tvCoverStatus.setText("内置官方经典蓝色封面 (默认)");
+        tvCoverStatus.setText("内置默认封面 (默认)");
     }
 
     private void saveCustomCoverToFile(Bitmap bm) {
@@ -423,21 +423,21 @@ public class MainActivity extends Activity {
             public void onClick(View v) {
                 customCoverBitmap = null;
                 ivCoverThumb.setImageBitmap(defaultCoverBitmap);
-                tvCoverStatus.setText("内置官方经典蓝色封面 (默认)");
+                tvCoverStatus.setText("内置默认封面 (默认)");
                 SharedPreferences sp = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
                 sp.edit().putBoolean(KEY_PERSIST_COVER, false).apply();
                 File savedCoverFile = new File(getFilesDir(), SAVED_COVER_FILENAME);
                 if (savedCoverFile.exists()) {
                     savedCoverFile.delete();
                 }
-                Toast.makeText(MainActivity.this, "已恢复并保存为官方默认封面", Toast.LENGTH_SHORT).show();
+                Toast.makeText(MainActivity.this, "已恢复并保存为内置默认封面", Toast.LENGTH_SHORT).show();
             }
         });
 
         btnSaveCover.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
                 if (customCoverBitmap == null) {
-                    Toast.makeText(MainActivity.this, "当前为官方默认封面，无需重复保存", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(MainActivity.this, "当前为内置默认封面，无需重复保存", Toast.LENGTH_SHORT).show();
                     return;
                 }
                 saveCustomCoverToFile(customCoverBitmap);
