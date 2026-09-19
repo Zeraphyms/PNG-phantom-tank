@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="robots" content="noindex, nofollow">
+  <title>网站维护中 - APNG 伪装工具</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background-color: #F8FAFC;
+      color: #0F172A;
+      line-height: 1.5;
+      font-size: 14px;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+
+    .app-container {
+      width: 100%;
+      max-width: 600px;
+    }
+
+    /* 顶部导航栏 (与原站一致) */
+    .app-header {
+      height: 56px;
+      background: #2563EB;
+      color: #FFFFFF;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      border-radius: 12px 12px 0 0;
+      box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
+    }
+
+    .app-title {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+    }
+
+    .app-badge {
+      font-size: 11px;
+      background: rgba(255, 255, 255, 0.2);
+      padding: 3px 8px;
+      border-radius: 12px;
+      color: #E0E7FF;
+    }
+
+    /* 卡片 (与原站 card 风格一致) */
+    .card {
+      background: #FFFFFF;
+      border-radius: 12px;
+      padding: 16px;
+      margin-top: 12px;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+    }
+
+    .maintenance-card {
+      text-align: center;
+      padding: 32px 16px 24px;
+    }
+
+    .maintenance-icon {
+      font-size: 52px;
+      line-height: 1;
+      cursor: pointer;
+      user-select: none;
+      animation: bounce 2s ease-in-out infinite;
+    }
+
+    @keyframes bounce {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-6px); }
+    }
+
+    .maintenance-title {
+      font-size: 20px;
+      font-weight: 700;
+      margin-top: 14px;
+      color: #0F172A;
+    }
+
+    .maintenance-desc {
+      margin-top: 10px;
+      color: #475569;
+    }
+
+    .maintenance-sub {
+      margin-top: 6px;
+      font-size: 12px;
+      color: #94A3B8;
+    }
+
+    .maintenance-note {
+      margin-top: 14px;
+      background: #EFF6FF;
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 12px;
+      color: #2563EB;
+      text-align: left;
+    }
+
+    /* 状态指示 */
+    .status-row {
+      margin-top: 16px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: #FEF2F2;
+      color: #DC2626;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 6px 14px;
+      border-radius: 999px;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #DC2626;
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.8); }
+    }
+
+    .card-title {
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .card-desc {
+      margin-top: 6px;
+      font-size: 12px;
+      color: #475569;
+      word-break: break-all;
+    }
+
+    .card-desc a {
+      color: #2563EB;
+      text-decoration: none;
+    }
+
+    /* 彩蛋:点击坦克图标后显示 */
+    #easter-egg {
+      display: none;
+      margin-top: 12px;
+      font-size: 12px;
+      color: #94A3B8;
+    }
+
+    #easter-egg.show {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+
+<div class="app-container">
+  <header class="app-header">
+    <div class="app-title">APNG 伪装工具</div>
+    <div class="app-badge">维护模式</div>
+  </header>
+
+  <div class="card maintenance-card">
+    <div class="maintenance-icon" id="tank-icon" title="点我一下试试">🚧</div>
+    <div class="maintenance-title">网站维护中</div>
+    <div class="maintenance-desc">我们正在对站点进行升级维护，期间暂时无法提供伪装 / 还原 / 拆解服务。</div>
+    <div class="maintenance-sub">维护通常很快完成，你也可以稍后手动重新打开。</div>
+    <div class="maintenance-note">💡 放心，你之前生成和保存的伪装图片都在你自己的设备里，不受维护影响。</div>
+    <div class="status-row"><span class="status-dot"></span>维护进行中 · 请稍后再来</div>
+    <div id="easter-egg">🛡️ 幻影坦克们已集体回库补给，恢复后会重新伪装上线！</div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">👨‍💻 开发者与开源项目</div>
+    <div class="card-desc">
+      本项目由 Zeraphyms 所制<br>
+    </div>
+  </div>
+</div>
+
+<script>
+  document.getElementById('tank-icon').addEventListener('click', function () {
+    document.getElementById('easter-egg').classList.add('show');
+  });
+</script>
+
+</body>
+</html>
