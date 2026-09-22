@@ -15,19 +15,93 @@ document.addEventListener("DOMContentLoaded", () => {
     const tabPages = document.querySelectorAll(".tab-page");
 
     // 1. Tab 切换
-    tabBtns.forEach(btn => {
-        btn.addEventListener("click", () => {
-            tabBtns.forEach(b => b.classList.remove("active"));
-            tabPages.forEach(p => p.classList.remove("active"));
-            btn.classList.add("active");
-            const targetId = btn.getAttribute("data-tab");
-            document.getElementById(targetId).classList.add("active");
+    function switchPage(targetId) {
+        tabPages.forEach(p => p.classList.remove("active"));
+        const page = document.getElementById(targetId);
+        if (page) page.classList.add("active");
 
-            if (targetId === "page-history") {
-                renderHistory();
-            }
+        // 非主 Tab 页（拆解动图 / 图片混沌）由「更多功能」菜单承载
+        tabBtns.forEach(b => {
+            b.classList.toggle("active", b.getAttribute("data-tab") === targetId);
+        });
+        document.querySelectorAll(".menu-item").forEach(mi => {
+            mi.classList.toggle("active", mi.getAttribute("data-tab") === targetId);
+        });
+
+        if (targetId === "page-history") {
+            renderHistory();
+        }
+    }
+
+    tabBtns.forEach(btn => {
+        btn.addEventListener("click", () => switchPage(btn.getAttribute("data-tab")));
+    });
+
+    // 1.1 更多功能菜单
+    const btnMenuMore = document.getElementById("btn-menu-more");
+    const menuMore = document.getElementById("menu-more");
+
+    function closeMenu() {
+        menuMore.hidden = true;
+        btnMenuMore.setAttribute("aria-expanded", "false");
+    }
+
+    btnMenuMore.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const willOpen = menuMore.hidden;
+        menuMore.hidden = !willOpen;
+        btnMenuMore.setAttribute("aria-expanded", String(willOpen));
+    });
+
+    menuMore.querySelectorAll(".menu-item").forEach(item => {
+        item.addEventListener("click", () => {
+            switchPage(item.getAttribute("data-tab"));
+            closeMenu();
         });
     });
+
+    document.addEventListener("click", (e) => {
+        if (!menuMore.hidden && !menuMore.contains(e.target) && !btnMenuMore.contains(e.target)) {
+            closeMenu();
+        }
+    });
+
+    document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") closeMenu();
+    });
+
+    // 1.2 夜间模式（跟随系统，可手动切换并持久化）
+    const btnTheme = document.getElementById("btn-theme");
+    const mediaDark = window.matchMedia("(prefers-color-scheme: dark)");
+
+    function applyTheme(dark) {
+        document.documentElement.classList.toggle("dark", dark);
+        btnTheme.setAttribute("aria-label", dark ? "切换日间模式" : "切换夜间模式");
+        const meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute("content", dark ? "#16233A" : "#2563EB");
+    }
+
+    function savedTheme() {
+        try { return localStorage.getItem("png_web_theme"); } catch (e) { return null; }
+    }
+
+    applyTheme(savedTheme() ? savedTheme() === "dark" : mediaDark.matches);
+
+    btnTheme.addEventListener("click", () => {
+        const dark = !document.documentElement.classList.contains("dark");
+        applyTheme(dark);
+        try { localStorage.setItem("png_web_theme", dark ? "dark" : "light"); } catch (e) {}
+    });
+
+    // 未手动设置过时，跟随系统变化实时切换
+    const onSystemThemeChange = (e) => {
+        if (!savedTheme()) applyTheme(e.matches);
+    };
+    if (mediaDark.addEventListener) {
+        mediaDark.addEventListener("change", onSystemThemeChange);
+    } else if (mediaDark.addListener) {
+        mediaDark.addListener(onSystemThemeChange);
+    }
 
     // 2. 底色配置加载与选择 (localStorage 持久化)
     const savedBgColor = localStorage.getItem("png_web_bg_color") || "black";
@@ -46,7 +120,7 @@ document.addEventListener("DOMContentLoaded", () => {
         let target = document.querySelector(`.color-item[data-key="${key}"]`) || document.querySelector(`.color-item[data-key="black"]`);
         target.classList.add("selected");
         selectedBgColor = target.getAttribute("data-color");
-        document.getElementById("txt-selected-color-name").textContent = "当前: " + target.getAttribute("data-name");
+        document.getElementById("txt-selected-color-name").textContent = target.getAttribute("data-name");
     }
 
     // 3. 封面持久化加载
@@ -75,7 +149,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // 保存封面
     document.getElementById("btn-save-cover").addEventListener("click", () => {
         if (!customCoverBlob) {
-            alert("当前为官方默认封面，无需重复保存");
+            alert("当前为内置默认封面，无需重复保存");
             return;
         }
         const reader = new FileReader();
@@ -92,8 +166,8 @@ document.addEventListener("DOMContentLoaded", () => {
         customCoverBlob = null;
         localStorage.removeItem("png_web_custom_cover");
         document.getElementById("img-cover-thumb").src = "assets/default_cover.png";
-        document.getElementById("txt-cover-status").textContent = "内置官方经典蓝色封面 (默认)";
-        alert("已恢复并保存为官方默认封面");
+        document.getElementById("txt-cover-status").textContent = "内置默认封面";
+        alert("已恢复并保存为内置默认封面");
     });
 
     // 4. 选择要伪装的原图
@@ -634,6 +708,147 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     document.getElementById("btn-download-split").addEventListener("click", () => downloadAll(lastSplitResults));
+
+    // 6.6 图片混沌功能
+    const boxChaos = document.getElementById("box-chaos-upload");
+    const inputChaos = document.getElementById("input-chaos-image");
+    let chaosSourceCanvas = null;   // 当前原图（已按尺寸限制规范化）
+    let chaosResultBlob = null;
+    let chaosResultUrl = null;
+    let chaosMode = "enc";
+
+    boxChaos.addEventListener("click", () => inputChaos.click());
+
+    inputChaos.addEventListener("change", async (e) => {
+        if (!e.target.files || e.target.files.length === 0) return;
+        const file = e.target.files[0];
+        const preview = document.getElementById("img-chaos-preview");
+
+        try {
+            const img = await loadImage(URL.createObjectURL(file));
+            chaosSourceCanvas = ImageChaos.toCanvas(img);
+
+            const srcUrl = chaosSourceCanvas.toDataURL("image/jpeg", 0.95);
+            preview.src = srcUrl;
+            preview.style.display = "block";
+            boxChaos.querySelector(".upload-icon").style.display = "none";
+            boxChaos.querySelector(".upload-text").style.display = "none";
+            boxChaos.querySelector(".upload-hint").style.display = "none";
+
+            const srcImgEl = document.getElementById("img-chaos-src");
+            srcImgEl.src = srcUrl;
+            srcImgEl.hidden = false;
+            document.getElementById("chaos-empty-src").hidden = true;
+            clearChaosResult();
+
+            const badge = document.getElementById("badge-chaos-info");
+            badge.style.display = "block";
+            badge.textContent = `已选: ${file.name} (${chaosSourceCanvas.width}x${chaosSourceCanvas.height})`;
+            badge.style.color = "";
+        } catch (err) {
+            alert("图片加载失败: " + err.message);
+        }
+    });
+
+    function clearChaosResult() {
+        if (chaosResultUrl) {
+            URL.revokeObjectURL(chaosResultUrl);
+            chaosResultUrl = null;
+        }
+        chaosResultBlob = null;
+        const outImgEl = document.getElementById("img-chaos-out");
+        outImgEl.removeAttribute("src");
+        outImgEl.hidden = true;
+        document.getElementById("chaos-empty-out").hidden = false;
+        document.getElementById("chaos-result-actions").style.display = "none";
+        document.getElementById("txt-chaos-summary").textContent = "";
+    }
+
+    document.querySelectorAll("#chaos-mode-group .segmented-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            document.querySelectorAll("#chaos-mode-group .segmented-btn").forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+            chaosMode = btn.getAttribute("data-mode");
+        });
+    });
+
+    function runChaos(canvas) {
+        return ImageChaos.transform(canvas, chaosMode);
+    }
+
+    function refreshChaosActionState() {
+        const label = chaosMode === "enc" ? "混淆" : "解混淆";
+        document.getElementById("btn-chaos-run").textContent = `🌀 立即${label}`;
+    }
+
+    document.getElementById("btn-chaos-run").addEventListener("click", () => {
+        if (!chaosSourceCanvas) {
+            alert("请先选择一张图片");
+            return;
+        }
+
+        const btn = document.getElementById("btn-chaos-run");
+        btn.disabled = true;
+        const label = chaosMode === "enc" ? "混淆" : "解混淆";
+        btn.textContent = `⏳ 正在${label}中...`;
+
+        setTimeout(() => {
+            try {
+                const resultCanvas = runChaos(chaosSourceCanvas);
+                resultCanvas.toBlob(blob => {
+                    if (!blob) throw new Error("导出结果失败");
+
+                    if (chaosResultUrl) URL.revokeObjectURL(chaosResultUrl);
+                    chaosResultBlob = blob;
+                    chaosResultUrl = URL.createObjectURL(blob);
+
+                    const outEl = document.getElementById("img-chaos-out");
+                    outEl.src = chaosResultUrl;
+                    outEl.hidden = false;
+                    document.getElementById("chaos-empty-out").hidden = true;
+                    document.getElementById("txt-chaos-label-out").textContent =
+                        chaosMode === "enc" ? "混淆结果" : "解混淆结果";
+                    document.getElementById("chaos-result-actions").style.display = "flex";
+                    document.getElementById("txt-chaos-summary").textContent =
+                        `${label}完成 | 尺寸 ${resultCanvas.width}x${resultCanvas.height} | 大小 ${(blob.size / 1024).toFixed(1)} KB`;
+
+                    btn.disabled = false;
+                    refreshChaosActionState();
+                }, "image/jpeg", 0.95);
+            } catch (err) {
+                alert(`${label}失败: ` + err.message);
+                btn.disabled = false;
+                refreshChaosActionState();
+            }
+        }, 30);
+    });
+
+    document.getElementById("btn-chaos-reset").addEventListener("click", () => {
+        if (!chaosSourceCanvas) {
+            alert("请先选择一张图片");
+            return;
+        }
+        clearChaosResult();
+        const resetOut = document.getElementById("img-chaos-out");
+        resetOut.src = chaosSourceCanvas.toDataURL("image/jpeg", 0.95);
+        resetOut.hidden = false;
+        document.getElementById("chaos-empty-out").hidden = true;
+        document.getElementById("txt-chaos-label-out").textContent = "原图（已还原）";
+        alert("已把处理结果恢复为原图（未改动磁盘上的图片）");
+    });
+
+    document.getElementById("btn-chaos-download").addEventListener("click", () => {
+        if (!chaosResultBlob) return;
+        const a = document.createElement("a");
+        const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14);
+        a.href = chaosResultUrl;
+        a.download = `chaos_${stamp}.jpg`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+    });
+
+    refreshChaosActionState();
 
     // 7. 下载与分享按钮
     document.getElementById("btn-download-disguise").addEventListener("click", () => downloadAll(lastDisguisedResults));

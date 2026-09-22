@@ -27,3 +27,9 @@ png.exe_extracted/
 # Chrome automation test profiles
 .chrome-test/
 .chrome-test2/
+.chrome-chaos/
+.chrome-ui/
+.chrome-ui2/
+.chrome-glass/
+.chrome-glass2/
+.chrome-glass3/
