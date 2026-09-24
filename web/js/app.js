@@ -115,7 +115,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // 2. 底色配置加载与选择 (localStorage 持久化)
-    const savedBgColor = localStorage.getItem("png_web_bg_color") || "black";
+    const savedBgColor = localStorage.getItem("png_web_bg_color") || "white";
     applyBgColor(savedBgColor);
 
     document.querySelectorAll(".color-item").forEach(item => {
@@ -128,7 +128,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function applyBgColor(key) {
         document.querySelectorAll(".color-item").forEach(it => it.classList.remove("selected"));
-        let target = document.querySelector(`.color-item[data-key="${key}"]`) || document.querySelector(`.color-item[data-key="black"]`);
+        let target = document.querySelector(`.color-item[data-key="${key}"]`) || document.querySelector(`.color-item[data-key="white"]`);
         target.classList.add("selected");
         selectedBgColor = target.getAttribute("data-color");
         document.getElementById("txt-selected-color-name").textContent = target.getAttribute("data-name");
