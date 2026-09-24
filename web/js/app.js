@@ -10,6 +10,17 @@ document.addEventListener("DOMContentLoaded", () => {
     let splitFiles = [];
     let lastSplitResults = []; // { blob, filename, url }
 
+    // 拖拽目标集合（供全局 drop/dragover 拦截判断使用）
+    const dropBoxes = [];
+
+    // 全局拦截：拖到上传框以外的区域时，阻止浏览器默认"打开文件"行为
+    ["dragover", "drop"].forEach(evt => {
+        window.addEventListener(evt, e => {
+            const inside = dropBoxes.some(box => box.contains(e.target));
+            if (!inside) e.preventDefault();
+        }, false);
+    });
+
     // DOM
     const tabBtns = document.querySelectorAll(".tab-btn");
     const tabPages = document.querySelectorAll(".tab-page");
@@ -174,6 +185,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const boxSrc = document.getElementById("box-src-upload");
     const inputSrc = document.getElementById("input-src-images");
     boxSrc.addEventListener("click", () => inputSrc.click());
+    enableDropUpload(boxSrc, inputSrc);
 
     inputSrc.addEventListener("change", (e) => {
         if (e.target.files && e.target.files.length > 0) {
@@ -480,6 +492,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const boxRestore = document.getElementById("box-restore-upload");
     const inputRestore = document.getElementById("input-restore-images");
     boxRestore.addEventListener("click", () => inputRestore.click());
+    enableDropUpload(boxRestore, inputRestore);
 
     inputRestore.addEventListener("change", async (e) => {
         if (e.target.files && e.target.files.length > 0) {
@@ -626,6 +639,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const boxSplit = document.getElementById("box-split-upload");
     const inputSplit = document.getElementById("input-split-images");
     boxSplit.addEventListener("click", () => inputSplit.click());
+    enableDropUpload(boxSplit, inputSplit);
 
     inputSplit.addEventListener("change", (e) => {
         if (e.target.files && e.target.files.length > 0) {
@@ -718,6 +732,7 @@ document.addEventListener("DOMContentLoaded", () => {
     let chaosMode = "enc";
 
     boxChaos.addEventListener("click", () => inputChaos.click());
+    enableDropUpload(boxChaos, inputChaos);
 
     inputChaos.addEventListener("change", async (e) => {
         if (!e.target.files || e.target.files.length === 0) return;
@@ -996,6 +1011,63 @@ document.addEventListener("DOMContentLoaded", () => {
     function showModal(url) {
         modalImg.src = url;
         modal.style.display = "flex";
+    }
+
+    // ===== 拖拽上传支持 =====
+    // 说明：dropBoxes 与全局拦截已提前到回调顶部声明，
+    // 避免在 enableDropUpload 首次调用时命中 TDZ 报错。
+    function enableDropUpload(box, input) {
+        let depth = 0;
+
+        const setActive = (on) => box.classList.toggle("dragover", on);
+
+        box.addEventListener("dragenter", e => {
+            e.preventDefault();
+            e.stopPropagation();
+            depth++;
+            setActive(true);
+        });
+
+        box.addEventListener("dragover", e => {
+            e.preventDefault();
+            e.stopPropagation();
+            // 明确声明为"复制"，部分浏览器据此决定是否允许 drop
+            try { e.dataTransfer.dropEffect = "copy"; } catch (err) {}
+        });
+
+        box.addEventListener("dragleave", e => {
+            e.preventDefault();
+            e.stopPropagation();
+            depth = Math.max(0, depth - 1);
+            if (depth === 0) setActive(false);
+        });
+
+        box.addEventListener("drop", e => {
+            e.preventDefault();
+            e.stopPropagation();
+            depth = 0;
+            setActive(false);
+
+            const dt = e.dataTransfer;
+            if (!dt || !dt.files || dt.files.length === 0) {
+                alert("没有检测到文件，请把本地图片文件拖拽到这里");
+                return;
+            }
+
+            // 把拖入的文件写回 input，并派发 change，
+            // 这样各处既有的选择逻辑可以完全复用
+            try {
+                input.files = dt.files;
+            } catch (err) {
+                // 部分浏览器不允许直接赋值 files，退化为 DataTransfer 方式
+                const transfer = new DataTransfer();
+                for (let i = 0; i < dt.files.length; i++) {
+                    transfer.items.add(dt.files[i]);
+                }
+                input.files = transfer.files;
+            }
+            input.dispatchEvent(new Event("change", { bubbles: true }));
+        });
     }
 
     // 辅助加载
