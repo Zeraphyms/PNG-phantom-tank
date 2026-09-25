@@ -605,7 +605,22 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 const filename = `${String(i + 1).padStart(3, "0")}_restored_${timeBase}.${format}`;
                 const url = URL.createObjectURL(restoredBlob);
-                lastRestoredResults.push({ blob: restoredBlob, filename, url, format });
+
+                // 顺带取回这张伪装图自身的封面（APNG 默认帧）
+                let coverBlob = null;
+                let coverUrl = null;
+                try {
+                    const coverPngBytes = ApngCodec.extractDefaultFramePng(info.chunks);
+                    if (coverPngBytes) {
+                        coverBlob = new Blob([coverPngBytes], { type: "image/png" });
+                        coverUrl = URL.createObjectURL(coverBlob);
+                    }
+                } catch (e) {
+                    coverBlob = null;
+                    coverUrl = null;
+                }
+
+                lastRestoredResults.push({ blob: restoredBlob, filename, url, format, coverBlob, coverUrl, coverName: file.name });
 
                 saveToHistory("restored", filename, restoredBlob, url);
             }
@@ -618,6 +633,18 @@ document.addEventListener("DOMContentLoaded", () => {
             const firstRes = lastRestoredResults[0];
             document.getElementById("card-restore-result").style.display = "block";
             document.getElementById("img-restored-preview").src = firstRes.url;
+
+            // 伪装封面栏
+            const coverSection = document.getElementById("restore-cover-section");
+            const coverImg = document.getElementById("img-restore-cover");
+            if (firstRes.coverUrl) {
+                coverImg.src = firstRes.coverUrl;
+                coverSection.style.display = "block";
+            } else {
+                coverImg.removeAttribute("src");
+                coverSection.style.display = "none";
+            }
+
 
             const summary = document.getElementById("txt-restore-summary");
             if (lastRestoredResults.length === 1) {
@@ -867,6 +894,21 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // 7. 下载与分享按钮
     document.getElementById("btn-download-disguise").addEventListener("click", () => downloadAll(lastDisguisedResults));
+    document.getElementById("btn-download-cover").addEventListener("click", () => {
+        const item = lastRestoredResults.find(r => r.coverBlob);
+        if (!item) {
+            alert("当前没有可保存的伪装封面");
+            return;
+        }
+        const baseName = (item.coverName || "cover").replace(/\.[^.]+$/, "");
+        const a = document.createElement("a");
+        a.href = item.coverUrl;
+        a.download = `${baseName}_cover.png`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+    });
+
     document.getElementById("btn-download-restored").addEventListener("click", () => downloadAll(lastRestoredResults));
 
     document.getElementById("btn-share-disguise").addEventListener("click", () => shareResults(lastDisguisedResults));
@@ -1009,8 +1051,29 @@ document.addEventListener("DOMContentLoaded", () => {
     modal.addEventListener("click", () => modal.style.display = "none");
 
     function showModal(url) {
+        if (!url) return;
         modalImg.src = url;
         modal.style.display = "flex";
+    }
+
+    // 还原结果：点击真图 / 封面缩略图查看大图
+    const imgRestoredPreview = document.getElementById("img-restored-preview");
+    const imgRestoreCover = document.getElementById("img-restore-cover");
+
+    if (imgRestoredPreview) {
+        imgRestoredPreview.addEventListener("click", () => {
+            if (imgRestoredPreview.getAttribute("src")) {
+                showModal(imgRestoredPreview.src);
+            }
+        });
+    }
+
+    if (imgRestoreCover) {
+        imgRestoreCover.addEventListener("click", () => {
+            if (imgRestoreCover.getAttribute("src")) {
+                showModal(imgRestoreCover.src);
+            }
+        });
     }
 
     // ===== 拖拽上传支持 =====

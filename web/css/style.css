@@ -997,3 +997,91 @@ html.dark .cover-row {
   .preview-img { height: 120px; }
   .chaos-preview-frame { height: 124px; }
 }
+
+
+/* ===== 还原结果：伪装封面栏 ===== */
+.restore-cover-section {
+  display: none;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--border-strong);
+}
+
+.restore-cover-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.restore-cover-title {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.restore-cover-hint {
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+
+.restore-cover-body {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--glass);
+  -webkit-backdrop-filter: saturate(180%) blur(16px);
+  backdrop-filter: saturate(180%) blur(16px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+  padding: 10px;
+}
+
+html.dark .restore-cover-body {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.restore-cover-thumb {
+  width: 72px;
+  height: 72px;
+  object-fit: contain;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  flex: 0 0 auto;
+}
+
+.restore-cover-body .btn-outline {
+  flex: 1;
+  justify-content: center;
+  height: 40px;
+  border-radius: 999px;
+}
+
+@media (max-width: 400px) {
+  .restore-cover-thumb { width: 60px; height: 60px; }
+}
+
+
+/* ===== 可点击放大的图片 ===== */
+.zoomable {
+  cursor: zoom-in;
+  transition: opacity .18s ease, transform .18s ease;
+}
+
+.zoomable:hover {
+  opacity: .92;
+  transform: scale(1.01);
+}
+
+.zoomable:active {
+  transform: scale(0.99);
+}
+
+/* 还原结果预览图：限制高度并居中 */
+#img-restored-preview.zoomable {
+  display: block;
+  margin: 0 auto;
+}

@@ -171,6 +171,40 @@ class ApngCodec {
         return groups.filter(g => !ApngCodec.isHeartbeatFrame(g)).length;
     }
 
+    /**
+     * 提取 APNG 的默认帧（IDAT 段）作为独立 PNG。
+     * 伪装图的默认帧就是伪装封面（对方未点开时看到的那张）。
+     * 若文件中 IDAT 出现在第一个 fcTL 之前，说明它就是默认帧；
+     * 否则该文件的默认帧是动画首帧，此时返回 null。
+     */
+    static extractDefaultFramePng(chunks) {
+        // 找到第一个 fcTL 的位置，用它判断 IDAT 是否属于默认帧
+        let firstFctlIdx = -1;
+        for (let i = 0; i < chunks.length; i++) {
+            if (chunks[i].type === "fcTL") { firstFctlIdx = i; break; }
+        }
+        if (firstFctlIdx === -1) return null;
+
+        const idatPayloads = [];
+        for (let i = 0; i < firstFctlIdx; i++) {
+            if (chunks[i].type === "IDAT") idatPayloads.push(chunks[i].payload);
+        }
+        if (idatPayloads.length === 0) return null;
+
+        const ihdr = chunks.find(c => c.type === "IHDR");
+        if (!ihdr) return null;
+
+        let parts = [
+            ApngCodec.PNG_SIG,
+            ApngCodec.chunkBytes("IHDR", ihdr.payload)
+        ];
+        for (let p of idatPayloads) {
+            parts.push(ApngCodec.chunkBytes("IDAT", p));
+        }
+        parts.push(ApngCodec.chunkBytes("IEND", new Uint8Array(0)));
+        return ApngCodec.concatBuffers(parts);
+    }
+
     static frameGroupToPng(ihdrPayload, group) {
         let targetIhdr = new Uint8Array(ihdrPayload);
         let vIhdr = new DataView(targetIhdr.buffer, targetIhdr.byteOffset, targetIhdr.byteLength);
