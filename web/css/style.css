@@ -79,18 +79,18 @@ html.dark {
   --surface-soft: #1A2334;
   --surface-sunken: #0E1626;
 
-  /* 深色模式同样在这里调，数值可单独覆盖 */
-  --glass-alpha: 0.34;            /* 卡片 / 面板 */
-  --glass-alpha-strong: 0.62;     /* 顶栏 / 菜单 */
+  /* 深色模式同样在这里调，数值可单独覆盖（已与浅色模式同步） */
+  --glass-alpha: 0.01;            /* 卡片 / 面板 */
+  --glass-alpha-strong: 0.45;     /* 顶栏 / 菜单 */
   --glass-rgb: 23, 32, 50;        /* 玻璃底色（深色模式） */
-  --glass-blur: 10px;
+  --glass-blur: 1px;
   --glass: rgba(var(--glass-rgb), var(--glass-alpha));
   --glass-strong: rgba(var(--glass-rgb), var(--glass-alpha-strong));
 
   /* 蓝色主按钮透明度（深色模式） */
   --btn-rgb: 75, 163, 236;
-  --btn-alpha-top: 0.34;
-  --btn-alpha-bottom: 0.40;
+  --btn-alpha-top: 0.65;
+  --btn-alpha-bottom: 0.85;
 
   --border: #2A3648;
   --border-strong: #3A4A63;
