@@ -41,3 +41,5 @@ png.exe_extracted/
 .chrome-cov/
 .chrome-cov2/
 .chrome-zoom/
+.chrome-zoom2/
+.chrome-dragfix/

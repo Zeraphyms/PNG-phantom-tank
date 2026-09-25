@@ -1045,16 +1045,231 @@ document.addEventListener("DOMContentLoaded", () => {
         } catch (e) {}
     });
 
-    // 9. 大图预览 Modal
+    // 9. 大图预览 Modal（支持滚轮 / 双指缩放，拖动平移）
     const modal = document.getElementById("modal-preview");
     const modalImg = document.getElementById("modal-img");
-    modal.addEventListener("click", () => modal.style.display = "none");
+    const modalStage = document.getElementById("modal-stage");
+    const zoomLabel = document.getElementById("txt-zoom-level");
+
+    const MIN_SCALE = 1;      // 1 = 适配屏幕的原始大小
+    const MAX_SCALE = 8;
+
+    let viewScale = 1;
+    let viewX = 0;            // 平移量（px）
+    let viewY = 0;
+    let baseW = 0;            // 适配后的显示尺寸，用于限制平移范围
+    let baseH = 0;
+
+    function applyView() {
+        modalImg.style.transform =
+            `translate(${viewX}px, ${viewY}px) scale(${viewScale})`;
+        zoomLabel.textContent = Math.round(viewScale * 100) + "%";
+        modalStage.classList.toggle("grabbing", false);
+    }
+
+    // 限制平移范围，避免把图拖出视野
+    function clampPan() {
+        const rect = modalStage.getBoundingClientRect();
+        const scaledW = baseW * viewScale;
+        const scaledH = baseH * viewScale;
+        // 图比容器小时不允许平移；比容器大时允许移动到边缘
+        const maxX = Math.max(0, (scaledW - rect.width) / 2);
+        const maxY = Math.max(0, (scaledH - rect.height) / 2);
+        viewX = Math.min(maxX, Math.max(-maxX, viewX));
+        viewY = Math.min(maxY, Math.max(-maxY, viewY));
+    }
+
+    function resetView() {
+        viewScale = 1;
+        viewX = 0;
+        viewY = 0;
+        applyView();
+    }
+
+    // 以某个锚点（相对容器中心）为基准缩放，保证手指/光标下的位置不跑
+    function zoomAt(nextScale, anchorX, anchorY) {
+        const clamped = Math.min(MAX_SCALE, Math.max(MIN_SCALE, nextScale));
+        if (clamped === viewScale) return;
+        const ratio = clamped / viewScale;
+        viewX = anchorX - (anchorX - viewX) * ratio;
+        viewY = anchorY - (anchorY - viewY) * ratio;
+        viewScale = clamped;
+        clampPan();
+        applyView();
+    }
+
+    function measureBaseSize() {
+        const rect = modalStage.getBoundingClientRect();
+        const nw = modalImg.naturalWidth || rect.width;
+        const nh = modalImg.naturalHeight || rect.height;
+        // modal-content 用 max-width/max-height 适配，这里按同样规则算显示尺寸
+        const maxW = rect.width * 0.92;
+        const maxH = rect.height;
+        const fit = Math.min(maxW / nw, maxH / nh, 1);
+        baseW = nw * fit;
+        baseH = nh * fit;
+    }
 
     function showModal(url) {
         if (!url) return;
+        resetView();
         modalImg.src = url;
-        modal.style.display = "flex";
+        modal.classList.add("open");
+
+        const onReady = () => {
+            measureBaseSize();
+            resetView();
+            modalImg.removeEventListener("load", onReady);
+        };
+
+        if (modalImg.complete && modalImg.naturalWidth > 0) {
+            measureBaseSize();
+            resetView();
+        } else {
+            modalImg.addEventListener("load", onReady);
+        }
     }
+
+    function closeModal() {
+        modal.classList.remove("open");
+        modalImg.removeAttribute("src");
+    }
+
+    // --- 工具栏 ---
+    document.getElementById("btn-zoom-in").addEventListener("click", () => zoomAt(viewScale * 1.25, 0, 0));
+    document.getElementById("btn-zoom-out").addEventListener("click", () => zoomAt(viewScale / 1.25, 0, 0));
+    document.getElementById("btn-zoom-reset").addEventListener("click", resetView);
+    document.getElementById("btn-modal-close").addEventListener("click", closeModal);
+
+    // 点击遮罩空白处关闭。
+    // 注意：拖动时我们会 setPointerCapture，松开后 click 的 target 会变成舞台，
+    // 所以必须用"位移量 + 按下位置"来区分点击与拖动，避免拖完自动退出。
+    const CLICK_MOVE_TOLERANCE = 6;   // 位移小于该值才算点击（px）
+    let gesture = null;               // { x, y, moved, onBlank }
+
+    modal.addEventListener("click", (e) => {
+        if (e.target === modal) closeModal();
+    });
+
+    // --- 滚轮缩放（桌面） ---
+    modalStage.addEventListener("wheel", (e) => {
+        e.preventDefault();
+        const rect = modalStage.getBoundingClientRect();
+        const cx = e.clientX - rect.left - rect.width / 2;
+        const cy = e.clientY - rect.top - rect.height / 2;
+        const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+        zoomAt(viewScale * factor, cx, cy);
+    }, { passive: false });
+
+    // --- 拖拽 / 双指平移与缩放（鼠标 + 触屏统一用 Pointer 事件） ---
+    const pointers = new Map();
+    let lastDist = 0;
+
+    modalStage.addEventListener("pointerdown", (e) => {
+        // 统一捕获指针，确保后续 pointerup 一定落在本元素上
+        try { modalStage.setPointerCapture(e.pointerId); } catch (err) {}
+
+        const onImg = (e.target === modalImg || modalImg.contains(e.target));
+        if (onImg) {
+            pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+            modalStage.classList.add("grabbing");
+        }
+
+        // 记录本次手势起点，用于结束后判断是"点击空白"还是"拖动"
+        if (!gesture) {
+            gesture = {
+                x: e.clientX,
+                y: e.clientY,
+                moved: false,
+                // 只有按在舞台任意位置（图片或空白）才算数，工具栏在舞台外不受影响
+                onBlank: !onImg
+            };
+        }
+    });
+
+    modalStage.addEventListener("pointermove", (e) => {
+        // 超过容差即视为拖动，不再算作点击
+        if (gesture && !gesture.moved) {
+            if (Math.hypot(e.clientX - gesture.x, e.clientY - gesture.y) > CLICK_MOVE_TOLERANCE) {
+                gesture.moved = true;
+            }
+        }
+
+        if (!pointers.has(e.pointerId)) return;
+        const prev = pointers.get(e.pointerId);
+        const dx = e.clientX - prev.x;
+        const dy = e.clientY - prev.y;
+        pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+        if (pointers.size === 1) {
+            // 单指/鼠标拖动平移
+            if (viewScale > 1) {
+                viewX += dx;
+                viewY += dy;
+                clampPan();
+                applyView();
+            }
+        } else if (pointers.size === 2) {
+            // 双指捏合缩放
+            const pts = Array.from(pointers.values());
+            const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+            const rect = modalStage.getBoundingClientRect();
+            const cx = (pts[0].x + pts[1].x) / 2 - rect.left - rect.width / 2;
+            const cy = (pts[0].y + pts[1].y) / 2 - rect.top - rect.height / 2;
+
+            if (lastDist > 0) {
+                zoomAt(viewScale * (dist / lastDist), cx, cy);
+            }
+            lastDist = dist;
+        }
+    });
+
+    function endPointer(e) {
+        if (pointers.has(e.pointerId)) {
+            pointers.delete(e.pointerId);
+            if (pointers.size < 2) lastDist = 0;
+            if (pointers.size === 0) modalStage.classList.remove("grabbing");
+        }
+
+        try { modalStage.releasePointerCapture(e.pointerId); } catch (err) {}
+
+        // 指针全部离开后结算：只有"在空白处按下且几乎没移动"才算点击关闭
+        if (pointers.size === 0) {
+            const g = gesture;
+            gesture = null;
+            if (g && g.onBlank && !g.moved) {
+                closeModal();
+            }
+        }
+    }
+
+    modalStage.addEventListener("pointerup", endPointer);
+    modalStage.addEventListener("pointercancel", endPointer);
+    // 注：不监听 pointerleave，否则拖动时鼠标滑出边缘会误判为点击而关闭
+
+    // 双击复位 / 放大
+    modalStage.addEventListener("dblclick", (e) => {
+        if (e.target !== modalImg) return;
+        if (viewScale > 1) resetView();
+        else zoomAt(2.5, 0, 0);
+    });
+
+    // 键盘：Esc 关闭，+/- 缩放
+    document.addEventListener("keydown", (e) => {
+        if (!modal.classList.contains("open")) return;
+        if (e.key === "Escape") closeModal();
+        else if (e.key === "+" || e.key === "=") zoomAt(viewScale * 1.25, 0, 0);
+        else if (e.key === "-") zoomAt(viewScale / 1.25, 0, 0);
+        else if (e.key === "0") resetView();
+    });
+
+    // 窗口尺寸变化时重新计算基准尺寸
+    window.addEventListener("resize", () => {
+        if (!modal.classList.contains("open")) return;
+        measureBaseSize();
+        if (viewScale <= 1) resetView();
+        else { clampPan(); applyView(); }
+    });
 
     // 还原结果：点击真图 / 封面缩略图查看大图
     const imgRestoredPreview = document.getElementById("img-restored-preview");
