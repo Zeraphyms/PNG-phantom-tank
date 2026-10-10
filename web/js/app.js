@@ -897,6 +897,13 @@ document.addEventListener("DOMContentLoaded", () => {
         document.body.removeChild(a);
     });
 
+    // 点击解混淆 / 混淆结果可查看大图（支持缩放）
+    document.getElementById("img-chaos-out").addEventListener("click", () => {
+        const el = document.getElementById("img-chaos-out");
+        if (el && el.getAttribute("src") && !el.hidden) {
+            showModal(el.src);
+        }
+    });
     refreshChaosActionState();
 
     // 7. 下载与分享按钮
@@ -986,9 +993,56 @@ document.addEventListener("DOMContentLoaded", () => {
         } catch (e) {}
     }
 
+    // 历史记录：选择模式状态
+    let historySelectMode = false;
+    const historySelectedIds = new Set();
+    const historyUrlCache = new Map();   // id -> objectURL
+
+    function setHistorySelectMode(on) {
+        historySelectMode = on;
+        if (!on) historySelectedIds.clear();
+        const bar = document.getElementById("history-selection-bar");
+        if (bar) bar.hidden = !on;
+        const toggle = document.getElementById("btn-select-history");
+        if (toggle) toggle.textContent = on ? "完成" : "选择";
+        const clearBtn = document.getElementById("btn-clear-history");
+        if (clearBtn) clearBtn.hidden = on;
+        refreshHistorySelectionUI();
+        document.querySelectorAll(".history-item").forEach(el => {
+            el.classList.toggle("selectable", on);
+        });
+    }
+
+    function refreshHistorySelectionUI() {
+        document.querySelectorAll(".history-item").forEach(el => {
+            const id = Number(el.getAttribute("data-id"));
+            el.classList.toggle("selected", historySelectedIds.has(id));
+            const box = el.querySelector(".history-check");
+            if (box) box.checked = historySelectedIds.has(id);
+        });
+        const txt = document.getElementById("txt-history-selected");
+        if (txt) txt.textContent = `已选 ${historySelectedIds.size} 项`;
+    }
+
+    function releaseHistoryUrl(id) {
+        const u = historyUrlCache.get(id);
+        if (u) { URL.revokeObjectURL(u); historyUrlCache.delete(id); }
+    }
+
+    async function deleteHistoryByIds(ids) {
+        const db = await openDB();
+        const tx = db.transaction(STORE_NAME, "readwrite");
+        const store = tx.objectStore(STORE_NAME);
+        ids.forEach(id => { store.delete(id); releaseHistoryUrl(id); });
+        return new Promise(resolve => { tx.oncomplete = () => resolve(); });
+    }
+
     async function renderHistory() {
         const container = document.getElementById("list-history-container");
         container.innerHTML = "";
+        // 释放上一轮遗留的 objectURL，避免内存堆积
+        historyUrlCache.forEach(u => URL.revokeObjectURL(u));
+        historyUrlCache.clear();
         try {
             const db = await openDB();
             const tx = db.transaction(STORE_NAME, "readonly");
@@ -1003,14 +1057,25 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 if (list.length === 0) {
                     container.innerHTML = `<div class="card" style="text-align: center; color: #94A3B8; padding: 36px;">🍃 暂无任何历史记录，生成的图片会自动保存在这里</div>`;
+                    setHistorySelectMode(false);
+                    const toggleEmpty = document.getElementById("btn-select-history");
+                    if (toggleEmpty) toggleEmpty.disabled = true;
                     return;
                 }
+
+                const toggle = document.getElementById("btn-select-history");
+                if (toggle) toggle.disabled = false;
 
                 list.forEach(item => {
                     const el = document.createElement("div");
                     el.className = "history-item";
+                    el.setAttribute("data-id", item.id);
                     const itemUrl = URL.createObjectURL(item.blob);
+                    historyUrlCache.set(item.id, itemUrl);
                     el.innerHTML = `
+                        <label class="history-check-wrap">
+                            <input type="checkbox" class="history-check" data-id="${item.id}">
+                        </label>
                         <img class="history-thumb" src="${itemUrl}" alt="thumb">
                         <div class="history-info">
                             <div><span class="history-tag ${item.type}">${item.type === "disguised" ? "伪装图" : "还原真图"}</span></div>
@@ -1036,11 +1101,59 @@ document.addEventListener("DOMContentLoaded", () => {
                         a.click();
                     });
                 });
+                container.querySelectorAll(".history-check").forEach(cb => {
+                    cb.addEventListener("change", () => {
+                        const id = Number(cb.getAttribute("data-id"));
+                        if (cb.checked) historySelectedIds.add(id);
+                        else historySelectedIds.delete(id);
+                        refreshHistorySelectionUI();
+                    });
+                });
+                container.querySelectorAll(".history-item").forEach(el => {
+                    el.addEventListener("click", (e) => {
+                        if (!historySelectMode) return;
+                        if (e.target.closest(".history-actions")) return;
+                        const id = Number(el.getAttribute("data-id"));
+                        if (historySelectedIds.has(id)) historySelectedIds.delete(id);
+                        else historySelectedIds.add(id);
+                        refreshHistorySelectionUI();
+                    });
+                });
+
+                // 保持/恢复选择模式（重新渲染后）
+                setHistorySelectMode(historySelectMode);
             };
         } catch (e) {
             container.innerHTML = `<div class="card" style="color: #EF4444;">读取本地历史失败</div>`;
         }
     }
+
+    document.getElementById("btn-select-history").addEventListener("click", () => {
+        setHistorySelectMode(!historySelectMode);
+    });
+
+    document.getElementById("btn-history-select-cancel").addEventListener("click", () => {
+        setHistorySelectMode(false);
+    });
+
+    document.getElementById("btn-history-select-all").addEventListener("click", () => {
+        const all = [...document.querySelectorAll(".history-item")].map(el => Number(el.getAttribute("data-id")));
+        const allSelected = all.length > 0 && all.every(id => historySelectedIds.has(id));
+        historySelectedIds.clear();
+        if (!allSelected) all.forEach(id => historySelectedIds.add(id));
+        refreshHistorySelectionUI();
+    });
+
+    document.getElementById("btn-history-delete-selected").addEventListener("click", async () => {
+        if (historySelectedIds.size === 0) {
+            alert("请先勾选要删除的记录");
+            return;
+        }
+        if (!confirm(`确定要删除选中的 ${historySelectedIds.size} 条记录吗？`)) return;
+        await deleteHistoryByIds([...historySelectedIds]);
+        historySelectedIds.clear();
+        renderHistory();
+    });
 
     document.getElementById("btn-clear-history").addEventListener("click", async () => {
         if (!confirm("确定要清空所有本地历史记录与缓存吗？")) return;

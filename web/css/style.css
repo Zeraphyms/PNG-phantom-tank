@@ -864,6 +864,56 @@ html.dark .cover-row {
   font-size: 11px;
 }
 
+/* ===== 历史记录：选择模式 ===== */
+.history-check-wrap {
+  display: none;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.history-item.selectable .history-check-wrap { display: flex; }
+
+.history-check {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+.history-item.selectable { cursor: pointer; }
+
+.history-item.selected {
+  border-color: var(--primary);
+  box-shadow: inset 0 0 0 1px var(--primary), var(--shadow-xs);
+}
+
+.history-selection-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  background: var(--glass);
+  -webkit-backdrop-filter: saturate(180%) blur(var(--glass-blur));
+  backdrop-filter: saturate(180%) blur(var(--glass-blur));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 10px 12px;
+  margin-bottom: 10px;
+}
+
+.history-selection-bar[hidden] { display: none; }
+
+.history-selection-text {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.history-selection-actions {
+  display: flex;
+  gap: 8px;
+}
 /* ===== 分段控件 ===== */
 .segmented {
   display: grid;
