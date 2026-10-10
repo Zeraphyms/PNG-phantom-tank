@@ -12,8 +12,8 @@
   "use strict";
 
   // 浏览器内存与性能上限：超过则等比缩小后再处理
-  var MAX_PIXELS = 8e6;
-  var MAX_SIDE = 4e3;
+  var MAX_PIXELS = 2e7;
+  var MAX_SIDE = 6e3;
 
   /**
    * 生成 w x h 画布上的 Gilbert 曲线坐标序列。

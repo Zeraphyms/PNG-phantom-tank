@@ -134,6 +134,12 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById("txt-selected-color-name").textContent = target.getAttribute("data-name");
     }
 
+    // 2.1 保留原图元数据开关（默认去除，localStorage 持久化）
+    const chkKeepMeta = document.getElementById("chk-keep-meta");
+    chkKeepMeta.checked = localStorage.getItem("png_web_keep_meta") === "1";
+    chkKeepMeta.addEventListener("change", () => {
+        localStorage.setItem("png_web_keep_meta", chkKeepMeta.checked ? "1" : "0");
+    });
     // 3. 封面持久化加载
     const savedCoverDataUrl = localStorage.getItem("png_web_custom_cover");
     if (savedCoverDataUrl) {
@@ -231,7 +237,14 @@ document.addEventListener("DOMContentLoaded", () => {
             for (let i = 0; i < srcFiles.length; i++) {
                 const file = srcFiles[i];
                 const badgeNum = srcFiles.length > 1 ? (i + 1) : null;
-                const disguisedApngBlob = await disguiseSingleFile(file, coverImg, badgeNum, selectedBgColor);
+                let keepMeta = false, metaChunks = [];
+                try {
+                    keepMeta = document.getElementById("chk-keep-meta").checked;
+                    if (keepMeta) {
+                        metaChunks = extractMetaChunks(new Uint8Array(await file.arrayBuffer()));
+                    }
+                } catch (e) { keepMeta = false; metaChunks = []; }
+                const disguisedApngBlob = await disguiseSingleFile(file, coverImg, badgeNum, selectedBgColor, keepMeta, metaChunks);
                 const filename = `${String(i + 1).padStart(3, "0")}_disguised_${timeBase}.png`;
                 const url = URL.createObjectURL(disguisedApngBlob);
                 lastDisguisedResults.push({ blob: disguisedApngBlob, filename, url });
@@ -263,7 +276,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     // 伪装单张文件为 APNG
-    async function disguiseSingleFile(file, coverImg, badgeNum, bgColor) {
+    async function disguiseSingleFile(file, coverImg, badgeNum, bgColor, keepMeta, metaChunks) {
         const isGif = file.type === "image/gif" || file.name.toLowerCase().endsWith(".gif");
 
         if (isGif) {
@@ -360,8 +373,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
             }
 
-            parts.push(ApngCodec.chunkBytes("IEND", new Uint8Array(0)));
-            return new Blob([ApngCodec.concatBuffers(parts)], { type: "image/png" });
+            let finalBytes = ApngCodec.concatBuffers(parts);
+            if (keepMeta && metaChunks && metaChunks.length) finalBytes = appendMetaChunks(finalBytes, metaChunks);
+            return new Blob([finalBytes], { type: "image/png" });
         }
 
         // 静态图片处理
@@ -464,9 +478,80 @@ document.addEventListener("DOMContentLoaded", () => {
         hbFdat.set(hbIdat, 4);
         parts.push(ApngCodec.chunkBytes("fdAT", hbFdat));
 
-        parts.push(ApngCodec.chunkBytes("IEND", new Uint8Array(0)));
-        return new Blob([ApngCodec.concatBuffers(parts)], { type: "image/png" });
+        let finalBytes = ApngCodec.concatBuffers(parts);
+        if (keepMeta && metaChunks && metaChunks.length) finalBytes = appendMetaChunks(finalBytes, metaChunks);
+        return new Blob([finalBytes], { type: "image/png" });
     }
+    // ===== 元数据 / NovelAI 提示词信息处理 =====
+    // 从源文件字节中提取可保留的元数据块（PNG 的 tEXt/iTXt/zTXt/eXIf；JPEG 的 APP1 Exif 转 eXIf）
+    function extractMetaChunks(raw) {
+        const out = [];
+        try {
+            if (raw[0] === 0x89 && raw[1] === 0x50 && raw[2] === 0x4E && raw[3] === 0x47) {
+                const chunks = ApngCodec.parseChunks(raw);
+                for (const c of chunks) {
+                    if (["tEXt", "iTXt", "zTXt", "eXIf"].includes(c.type)) {
+                        out.push({ type: c.type, payload: c.payload });
+                    }
+                }
+            } else if (raw[0] === 0xFF && raw[1] === 0xD8) {
+                let pos = 2;
+                while (pos + 4 <= raw.length) {
+                    const marker0 = raw[pos], marker1 = raw[pos + 1];
+                    const len = (raw[pos + 2] << 8) | raw[pos + 3];
+                    const segEnd = pos + 2 + len;
+                    if (marker0 === 0xFF && marker1 === 0xE1 && len >= 6 &&
+                        raw[pos + 4] === 0x45 && raw[pos + 5] === 0x78 &&
+                        raw[pos + 6] === 0x69 && raw[pos + 7] === 0x66) {
+                        // APP1 段内容（以 "Exif\0\0" 开头）整体转存为 PNG eXIf 块
+                        out.push({ type: "eXIf", payload: raw.slice(pos + 4, segEnd) });
+                        break;
+                    }
+                    if (marker0 === 0xFF && marker1 === 0xDA) break;   // 到达图像数据
+                    if (len <= 0) break;
+                    pos = segEnd;
+                }
+            }
+        } catch (e) { /* 提取失败不影响主流程 */ }
+        return out;
+    }
+
+    // 显式清理像素 alpha 最低位（NovelAI 提示词隐写位），全透明像素 RGB 归白。
+    // 返回是否发生了改动。
+    function stripAlphaLSB(canvas) {
+        const ctx = canvas.getContext("2d", { willReadFrequently: true });
+        const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const px = img.data;
+        let changed = false;
+        for (let i = 0; i < px.length; i += 4) {
+            const a = px[i + 3];
+            const na = a & 0xFE;
+            if (na !== a) { px[i + 3] = na; changed = true; }
+            if (na === 0 && (px[i] !== 255 || px[i + 1] !== 255 || px[i + 2] !== 255)) {
+                px[i] = 255; px[i + 1] = 255; px[i + 2] = 255; changed = true;
+            }
+        }
+        if (changed) ctx.putImageData(img, 0, 0);
+        return changed;
+    }
+
+    // 在 PNG 字节中追加元数据块（插到 IEND 之前）
+    function appendMetaChunks(pngBytes, metaChunks) {
+        if (!metaChunks || metaChunks.length === 0) return pngBytes;
+        const chunks = ApngCodec.parseChunks(pngBytes);
+        const iendIdx = chunks.findIndex(c => c.type === "IEND");
+        const body = iendIdx >= 0 ? chunks.slice(0, iendIdx) : chunks;
+        const parts = [ApngCodec.PNG_SIG];
+        for (const c of body) {
+            parts.push(ApngCodec.chunkBytes(c.type, c.payload));
+        }
+        for (const mc of metaChunks) {
+            parts.push(ApngCodec.chunkBytes(mc.type, mc.payload));
+        }
+        parts.push(ApngCodec.chunkBytes("IEND", new Uint8Array(0)));
+        return ApngCodec.concatBuffers(parts);
+    }
+
 
     function drawBadgeOnCanvas(cctx, w, h, badgeNum) {
         const density = Math.max(1, Math.min(w, h) / 400);
@@ -764,6 +849,24 @@ document.addEventListener("DOMContentLoaded", () => {
     let chaosResultBlob = null;
     let chaosResultUrl = null;
     let chaosMode = "enc";
+    let chaosNoScale = false;   // 是否按原图尺寸处理（不缩小）
+
+    const chkChaosNoScale = document.getElementById("chk-chaos-noscale");
+    chkChaosNoScale.addEventListener("change", () => {
+        if (chkChaosNoScale.checked) {
+            const ok = confirm(
+                "不缩小（按原图尺寸处理）提示：\n\n"
+                + "• 超大图会占用大量内存，处理过程中浏览器可能卡顿，甚至因内存不足而崩溃；\n"
+                + "• 手机端或内存较小的设备风险更高，可能导致页面被迫刷新、处理结果丢失；\n"
+                + "• 若你的图片非常大，建议保持默认（自动等比缩小）以获得更稳定的体验。\n\n"
+                + "确定要继续启用“不缩小”吗？"
+            );
+            if (!ok) { chkChaosNoScale.checked = false; chaosNoScale = false; return; }
+            chaosNoScale = true;
+        } else {
+            chaosNoScale = false;
+        }
+    });
 
     boxChaos.addEventListener("click", () => inputChaos.click());
     enableDropUpload(boxChaos, inputChaos);
@@ -775,7 +878,17 @@ document.addEventListener("DOMContentLoaded", () => {
 
         try {
             const img = await loadImage(URL.createObjectURL(file));
-            chaosSourceCanvas = ImageChaos.toCanvas(img);
+            if (chaosNoScale) {
+                const w0 = img.naturalWidth || img.width;
+                const h0 = img.naturalHeight || img.height;
+                if (!w0 || !h0) throw new Error("图片尺寸无效");
+                chaosSourceCanvas = document.createElement("canvas");
+                chaosSourceCanvas.width = w0;
+                chaosSourceCanvas.height = h0;
+                chaosSourceCanvas.getContext("2d", { willReadFrequently: true }).drawImage(img, 0, 0, w0, h0);
+            } else {
+                chaosSourceCanvas = ImageChaos.toCanvas(img);
+            }
 
             const srcUrl = chaosSourceCanvas.toDataURL("image/jpeg", 0.95);
             preview.src = srcUrl;
@@ -1165,7 +1278,148 @@ document.addEventListener("DOMContentLoaded", () => {
         } catch (e) {}
     });
 
-    // 9. 大图预览 Modal（支持滚轮 / 双指缩放，拖动平移）
+    // 8.1 清除信息（元数据 / NovelAI 提示词抹除），支持多张
+    const boxClean = document.getElementById("box-clean-upload");
+    const inputClean = document.getElementById("input-clean-image");
+    let cleanSources = [];      // [{ canvas, filename }]
+    let cleanResults = [];      // [{ blob, url, filename }]
+
+    boxClean.addEventListener("click", () => inputClean.click());
+    enableDropUpload(boxClean, inputClean);
+
+    function clearCleanResult() {
+        cleanResults.forEach(r => { if (r.url) URL.revokeObjectURL(r.url); });
+        cleanResults = [];
+        document.getElementById("clean-result-actions").style.display = "none";
+        document.getElementById("txt-clean-summary").textContent = "";
+    }
+
+    inputClean.addEventListener("change", async (e) => {
+        const files = e.target.files ? Array.from(e.target.files) : [];
+        if (files.length === 0) return;
+
+        const preview = document.getElementById("img-clean-preview");
+        const badge = document.getElementById("badge-clean-info");
+        badge.style.display = "block";
+        badge.style.color = "";
+
+        const list = [];
+        try {
+            for (const file of files) {
+                const url = URL.createObjectURL(file);
+                try {
+                    const img = await loadImage(url);
+                    const w = img.naturalWidth || img.width;
+                    const h = img.naturalHeight || img.height;
+                    if (!w || !h) continue;
+                    // 清除信息不改变画面内容，按原始尺寸处理，不做任何缩小
+                    const canvas = document.createElement("canvas");
+                    canvas.width = w;
+                    canvas.height = h;
+                    canvas.getContext("2d", { willReadFrequently: true }).drawImage(img, 0, 0, w, h);
+                    list.push({ canvas, filename: file.name });
+                } finally {
+                    URL.revokeObjectURL(url);
+                }
+            }
+        } catch (err) {
+            alert("读取图片失败: " + err.message);
+        }
+
+        if (list.length === 0) {
+            alert("未能读取到有效图片");
+            return;
+        }
+
+        cleanSources = list;
+        clearCleanResult();
+
+        // 首张作为预览
+        const firstUrl = list[0].canvas.toDataURL("image/jpeg", 0.95);
+        preview.src = firstUrl;
+        preview.style.display = "block";
+        boxClean.querySelector(".upload-icon").style.display = "none";
+        boxClean.querySelector(".upload-text").style.display = "none";
+        boxClean.querySelector(".upload-hint").style.display = "none";
+
+        if (list.length === 1) {
+            badge.textContent = `已选: ${list[0].filename} (${list[0].canvas.width}x${list[0].canvas.height})`;
+        } else {
+            badge.textContent = `已选 ${list.length} 张图片，将逐张清除信息（按原始尺寸，不缩小）`;
+        }
+    });
+
+    document.getElementById("btn-clean-run").addEventListener("click", () => {
+        if (cleanSources.length === 0) { alert("请先选择图片"); return; }
+        const btn = document.getElementById("btn-clean-run");
+        btn.disabled = true;
+        const total = cleanSources.length;
+        btn.textContent = `⏳ 正在清除信息... (0/${total})`;
+
+        // 释放上一轮结果
+        cleanResults.forEach(r => { if (r.url) URL.revokeObjectURL(r.url); });
+        cleanResults = [];
+
+        const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14);
+        let idx = 0;
+
+        const processNext = () => {
+            if (idx >= total) {
+                finishClean(total);
+                return;
+            }
+            const item = cleanSources[idx];
+            const out = document.createElement("canvas");
+            out.width = item.canvas.width;
+            out.height = item.canvas.height;
+            out.getContext("2d").drawImage(item.canvas, 0, 0);
+            stripAlphaLSB(out);
+
+            out.toBlob(blob => {
+                if (blob) {
+                    const baseName = (item.filename || "image").replace(/\.[^.]+$/, "");
+                    cleanResults.push({
+                        blob,
+                        url: URL.createObjectURL(blob),
+                        filename: `${baseName}_clean_${stamp}.png`
+                    });
+                }
+                idx++;
+                btn.textContent = `⏳ 正在清除信息... (${idx}/${total})`;
+                setTimeout(processNext, 0);
+            }, "image/png");
+        };
+
+        const finishClean = (count) => {
+            btn.disabled = false;
+            btn.textContent = "🧹 立即清除信息";
+            if (cleanResults.length === 0) {
+                alert("清除信息失败：未能生成结果");
+                return;
+            }
+            const totalSize = cleanResults.reduce((s, r) => s + r.blob.size, 0);
+            document.getElementById("clean-result-actions").style.display = "flex";
+            document.getElementById("txt-clean-summary").textContent =
+                (count === 1 ? "信息清除完成" : `批量清除完成（共 ${cleanResults.length} 张）`)
+                + `（已移除 EXIF / 位置 / NovelAI 提示词等隐藏信息，输出不含元数据的 PNG）| 合计大小 ${(totalSize / 1024).toFixed(1)} KB`;
+        };
+
+        setTimeout(processNext, 30);
+    });
+
+    document.getElementById("btn-clean-download").addEventListener("click", () => {
+        if (cleanResults.length === 0) return;
+        cleanResults.forEach((r, i) => {
+            setTimeout(() => {
+                const a = document.createElement("a");
+                a.href = r.url;
+                a.download = r.filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+            }, i * 200);
+        });
+    });
     const modal = document.getElementById("modal-preview");
     const modalImg = document.getElementById("modal-img");
     const modalStage = document.getElementById("modal-stage");
