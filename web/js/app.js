@@ -730,10 +730,17 @@ document.addEventListener("DOMContentLoaded", () => {
 
             const grid = document.getElementById("split-frame-grid");
             grid.innerHTML = "";
-            lastSplitResults.forEach((item, idx) => {
+            lastSplitResults.forEach((item) => {
                 const el = document.createElement("div");
                 el.className = "split-frame-item";
-                el.innerHTML = `<img src="${item.url}" alt="frame"><div class="split-frame-label">${item.filename}</div>`;
+                el.innerHTML = `<img src="${item.url}" alt="frame" class="zoomable"><div class="split-frame-label">${item.filename}</div>`;
+                el.querySelector("img").addEventListener("click", () => {
+                    const list = lastSplitResults
+                        .filter(r => r && r.url)
+                        .map(r => ({ url: r.url, label: r.filename || "" }));
+                    const idx = list.findIndex(it => it.url === item.url);
+                    showModal(list, idx >= 0 ? idx : 0);
+                });
                 grid.appendChild(el);
             });
 
@@ -1110,11 +1117,24 @@ document.addEventListener("DOMContentLoaded", () => {
         baseH = nh * fit;
     }
 
-    function showModal(url) {
-        if (!url) return;
+    // ===== 多图浏览状态 =====
+    let modalList = [];      // [{ url, label }]
+    let modalIndex = 0;
+
+    const txtModalCounter = document.getElementById("txt-modal-counter");
+
+    function updateModalNav() {
+        const total = modalList.length;
+        const multi = total > 1;
+        txtModalCounter.hidden = !multi;
+        if (multi) {
+            txtModalCounter.textContent = `${modalIndex + 1} / ${total}`;
+        }
+    }
+
+    function loadModalImage(url) {
         resetView();
         modalImg.src = url;
-        modal.classList.add("open");
 
         const onReady = () => {
             measureBaseSize();
@@ -1130,9 +1150,46 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
+    /**
+     * 打开大图查看器。
+     * @param {string|Array} source 单个 URL，或 [{ url, label }] 列表
+     * @param {number} startIndex 起始索引（列表模式）
+     */
+    function showModal(source, startIndex = 0) {
+        if (!source) return;
+
+        if (Array.isArray(source)) {
+            modalList = source.filter(it => it && it.url);
+            if (modalList.length === 0) return;
+            modalIndex = Math.min(Math.max(0, startIndex), modalList.length - 1);
+        } else {
+            modalList = [{ url: source, label: "" }];
+            modalIndex = 0;
+        }
+
+        modal.classList.add("open");
+        updateModalNav();
+        loadModalImage(modalList[modalIndex].url);
+    }
+
+    function showModalAt(index) {
+        if (modalList.length === 0) return;
+        const total = modalList.length;
+        modalIndex = ((index % total) + total) % total;   // 循环
+        updateModalNav();
+        loadModalImage(modalList[modalIndex].url);
+    }
+
+    function showNextImage() { showModalAt(modalIndex + 1); }
+    function showPrevImage() { showModalAt(modalIndex - 1); }
+
+
     function closeModal() {
         modal.classList.remove("open");
         modalImg.removeAttribute("src");
+        modalList = [];
+        modalIndex = 0;
+        updateModalNav();
     }
 
     // --- 工具栏 ---
@@ -1164,6 +1221,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // --- 拖拽 / 双指平移与缩放（鼠标 + 触屏统一用 Pointer 事件） ---
     const pointers = new Map();
     let lastDist = 0;
+    let swipe = null;          // 单指滑动切图手势 { id, x, y, time }
 
     modalStage.addEventListener("pointerdown", (e) => {
         // 统一捕获指针，确保后续 pointerup 一定落在本元素上
@@ -1173,6 +1231,12 @@ document.addEventListener("DOMContentLoaded", () => {
         if (onImg) {
             pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
             modalStage.classList.add("grabbing");
+        }
+
+        // 触摸左右滑动切图：未放大时在舞台任意位置起手都生效（含图片与空白），
+        // 放大后交给拖动平移处理，避免冲突。
+        if (viewScale <= 1 && modalList.length > 1) {
+            swipe = { id: e.pointerId, x: e.clientX, y: e.clientY, time: Date.now(), active: false };
         }
 
         // 记录本次手势起点，用于结束后判断是"点击空白"还是"拖动"
@@ -1225,6 +1289,23 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     function endPointer(e) {
+        // 单指横向快速滑动 -> 上一张 / 下一张（未放大时）
+        if (swipe && swipe.id === e.pointerId) {
+            const s = swipe;
+            swipe = null;
+            const dx = e.clientX - s.x;
+            const dy = e.clientY - s.y;
+            const dt = Date.now() - s.time;
+            const fast = Math.abs(dx) > 55 && dt < 700;                 // 快速划动
+            const long = Math.abs(dx) > 110 && Math.abs(dy) < 80;       // 长距离拖拽
+            if ((fast || long) && Math.abs(dx) > Math.abs(dy) * 1.2) {
+                if (dx < 0) showNextImage();
+                else showPrevImage();
+                // 已判定为滑动切图，阻止后续被当作“点击空白”而关闭
+                if (gesture) gesture.moved = true;
+            }
+        }
+
         if (pointers.has(e.pointerId)) {
             pointers.delete(e.pointerId);
             if (pointers.size < 2) lastDist = 0;
@@ -1261,6 +1342,8 @@ document.addEventListener("DOMContentLoaded", () => {
         else if (e.key === "+" || e.key === "=") zoomAt(viewScale * 1.25, 0, 0);
         else if (e.key === "-") zoomAt(viewScale / 1.25, 0, 0);
         else if (e.key === "0") resetView();
+        else if (e.key === "ArrowLeft") showPrevImage();
+        else if (e.key === "ArrowRight") showNextImage();
     });
 
     // 窗口尺寸变化时重新计算基准尺寸
@@ -1277,9 +1360,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (imgRestoredPreview) {
         imgRestoredPreview.addEventListener("click", () => {
-            if (imgRestoredPreview.getAttribute("src")) {
-                showModal(imgRestoredPreview.src);
-            }
+            if (!imgRestoredPreview.getAttribute("src")) return;
+            // 批量还原后支持在大图里左右切换查看全部结果
+            const list = (lastRestoredResults || [])
+                .filter(r => r && r.url)
+                .map(r => ({ url: r.url, label: r.filename || "" }));
+            const idx = list.findIndex(it => it.url === imgRestoredPreview.src);
+            showModal(list.length ? list : imgRestoredPreview.src, idx >= 0 ? idx : 0);
         });
     }
 
