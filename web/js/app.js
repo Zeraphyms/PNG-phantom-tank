@@ -288,8 +288,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 const url = URL.createObjectURL(disguisedApngBlob);
                 lastDisguisedResults.push({ blob: disguisedApngBlob, filename, url });
 
-                // 保存到 IndexedDB 历史
-                saveToHistory("disguised", filename, disguisedApngBlob, url);
+                // 保存到 IndexedDB 历史（同一源文件去重）
+                const srcFp = await fileFingerprint(file);
+                saveToHistory("disguised", filename, disguisedApngBlob, url, srcFp);
             }
 
             // 展示首张结果
@@ -798,7 +799,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 lastRestoredResults.push({ blob: restoredBlob, filename, url, format, coverBlob, coverUrl, coverName: file.name });
 
-                saveToHistory("restored", filename, restoredBlob, url);
+                const srcFp = await fileFingerprint(file);
+                saveToHistory("restored", filename, restoredBlob, url, srcFp);
             }
 
             if (lastRestoredResults.length === 0) {
@@ -1183,16 +1185,60 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    async function saveToHistory(type, filename, blob, url) {
+    // 计算来源文件的内容指纹（长度 + 首/中/尾采样字节），用于历史去重。
+    // 不引依赖、file:// 下也可用；同一文件重复操作会得到相同指纹。
+    async function fileFingerprint(file) {
+        try {
+            const buf = new Uint8Array(await file.arrayBuffer());
+            const len = buf.length;
+            let acc = 2166136261 >>> 0;   // FNV-1a 变体，采样若干点混合
+            const step = Math.max(1, Math.floor(len / 4096));
+            for (let i = 0; i < len; i += step) {
+                acc ^= buf[i];
+                acc = Math.imul(acc, 16777619) >>> 0;
+            }
+            // 末尾若干字节也纳入，进一步降低碰撞
+            for (let i = Math.max(0, len - 64); i < len; i++) {
+                acc ^= buf[i];
+                acc = Math.imul(acc, 16777619) >>> 0;
+            }
+            return len + ":" + acc.toString(16);
+        } catch (e) {
+            return null;
+        }
+    }
+
+    async function saveToHistory(type, filename, blob, url, dedupeKey) {
         try {
             const db = await openDB();
+            // 去重：同一来源文件（同类型）只保留最新一条记录
+            if (dedupeKey) {
+                const existingIds = await new Promise((resolve) => {
+                    const rtx = db.transaction(STORE_NAME, "readonly");
+                    const rq = rtx.objectStore(STORE_NAME).getAll();
+                    rq.onsuccess = () => {
+                        const ids = rq.result
+                            .filter(it => it.type === type && it.dedupeKey === dedupeKey)
+                            .map(it => it.id);
+                        resolve(ids);
+                    };
+                    rq.onerror = () => resolve([]);
+                });
+                if (existingIds.length) {
+                    const dtx = db.transaction(STORE_NAME, "readwrite");
+                    const store = dtx.objectStore(STORE_NAME);
+                    existingIds.forEach(id => store.delete(id));
+                    await new Promise(res => { dtx.oncomplete = res; dtx.onerror = res; });
+                }
+            }
             const tx = db.transaction(STORE_NAME, "readwrite");
             tx.objectStore(STORE_NAME).add({
                 type,
                 filename,
                 blob,
                 size: blob.size,
-                time: new Date().toLocaleString("zh-CN")
+                time: new Date().toLocaleString("zh-CN"),
+                dedupeKey: dedupeKey || null
             });
         } catch (e) {}
     }
