@@ -415,6 +415,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
             }
 
+            parts.push(ApngCodec.chunkBytes("IEND", new Uint8Array(0)));
             let finalBytes = ApngCodec.concatBuffers(parts);
             if (keepMeta && metaChunks && metaChunks.length) finalBytes = appendMetaChunks(finalBytes, metaChunks);
             return new Blob([finalBytes], { type: "image/png" });
@@ -523,6 +524,7 @@ document.addEventListener("DOMContentLoaded", () => {
         hbFdat.set(hbIdat, 4);
         parts.push(ApngCodec.chunkBytes("fdAT", hbFdat));
 
+        parts.push(ApngCodec.chunkBytes("IEND", new Uint8Array(0)));
         let finalBytes = ApngCodec.concatBuffers(parts);
         if (keepMeta && metaChunks && metaChunks.length) finalBytes = appendMetaChunks(finalBytes, metaChunks);
         return new Blob([finalBytes], { type: "image/png" });
