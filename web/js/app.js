@@ -134,11 +134,50 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById("txt-selected-color-name").textContent = target.getAttribute("data-name");
     }
 
-    // 2.1 保留原图元数据开关（默认去除，localStorage 持久化）
+    // 2.1 封面设置浮层：防吞开关（默认开）+ 保留元数据开关
+    const btnCoverSettings = document.getElementById("btn-cover-settings");
+    const coverSettingsPop = document.getElementById("cover-settings-pop");
+
+    function toggleCoverSettings(open) {
+        const willOpen = (typeof open === "boolean") ? open : coverSettingsPop.hidden;
+        coverSettingsPop.hidden = !willOpen;
+        btnCoverSettings.setAttribute("aria-expanded", String(willOpen));
+    }
+
+    btnCoverSettings.addEventListener("click", (e) => {
+        e.stopPropagation();
+        toggleCoverSettings();
+    });
+    document.getElementById("btn-cover-settings-close").addEventListener("click", () => toggleCoverSettings(false));
+    document.addEventListener("click", (e) => {
+        if (!coverSettingsPop.hidden && !coverSettingsPop.contains(e.target) && !btnCoverSettings.contains(e.target)) {
+            toggleCoverSettings(false);
+        }
+    });
+
+    // 防吞「测试功能」说明弹窗
+    const infoModal = document.getElementById("info-modal");
+    document.getElementById("btn-anti-swallow-info").addEventListener("click", (e) => {
+        e.stopPropagation();
+        infoModal.hidden = false;
+        toggleCoverSettings(false);
+    });
+    document.getElementById("btn-info-modal-close").addEventListener("click", () => { infoModal.hidden = true; });
+    infoModal.addEventListener("click", (e) => { if (e.target === infoModal) infoModal.hidden = true; });
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !infoModal.hidden) infoModal.hidden = true; });
+
+    // 保留原图元数据开关（默认去除，localStorage 持久化）
     const chkKeepMeta = document.getElementById("chk-keep-meta");
     chkKeepMeta.checked = localStorage.getItem("png_web_keep_meta") === "1";
     chkKeepMeta.addEventListener("change", () => {
         localStorage.setItem("png_web_keep_meta", chkKeepMeta.checked ? "1" : "0");
+    });
+
+    // 防吞开关（默认开启，localStorage 持久化）
+    const chkAntiSwallow = document.getElementById("chk-anti-swallow");
+    chkAntiSwallow.checked = localStorage.getItem("png_web_anti_swallow") !== "0";
+    chkAntiSwallow.addEventListener("change", () => {
+        localStorage.setItem("png_web_anti_swallow", chkAntiSwallow.checked ? "1" : "0");
     });
     // 3. 封面持久化加载
     const savedCoverDataUrl = localStorage.getItem("png_web_custom_cover");
@@ -311,6 +350,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 drawBadgeOnCanvas(cctx, w, h, badgeNum);
             }
 
+            // 隐蔽防吞：仅扰动封面，真图帧不受影响（可在「封面设置」中关闭）
+            if (document.getElementById("chk-anti-swallow").checked) antiSwallowNoise(coverCanvas);
+
             const coverPngBlob = await elementToPngBlob(coverCanvas);
             const coverBuf = new Uint8Array(await coverPngBlob.arrayBuffer());
             const coverChunks = ApngCodec.parseChunks(coverBuf);
@@ -400,6 +442,9 @@ document.addEventListener("DOMContentLoaded", () => {
         if (badgeNum) {
             drawBadgeOnCanvas(cctx, w, h, badgeNum);
         }
+
+        // 隐蔽防吞：仅扰动封面，真图帧不受影响（可在「封面设置」中关闭）
+        if (document.getElementById("chk-anti-swallow").checked) antiSwallowNoise(coverCanvas);
 
         const coverPngBlob = await elementToPngBlob(coverCanvas);
         const coverBuf = new Uint8Array(await coverPngBlob.arrayBuffer());
@@ -571,6 +616,50 @@ document.addEventListener("DOMContentLoaded", () => {
 
         cctx.fillStyle = "#FFFFFF";
         cctx.fillText(text, margin + pad, margin + pad + size * 0.85);
+    }
+    // 隐蔽防吞：对封面画布施加极轻微、每次随机的像素扰动。
+    // 目的：让平台在缩略图/hash 层面把每次生成的封面判为"不同图"，避免被去重吞图。
+    // 说明：只作用于封面画布，绝不触碰真实内容帧，因此还原出的真图零改动。
+    function antiSwallowNoise(canvas) {
+        const ctx = canvas.getContext("2d", { willReadFrequently: true });
+        const w = canvas.width, h = canvas.height;
+        if (!w || !h) return canvas;
+        const img = ctx.getImageData(0, 0, w, h);
+        const px = img.data;
+
+        // 1) 全图随机轻微通道扰动：±2 级，肉眼几乎不可辨，但会改变缩略图指纹。
+        //    用整数运算避免 Math.random 逐像素调用的性能开销。
+        let seed = (Date.now() ^ (Math.random() * 0xFFFFFFFF)) >>> 0;
+        const rnd = () => {
+            seed ^= seed << 13; seed >>>= 0;
+            seed ^= seed >>> 17;
+            seed ^= seed << 5;  seed >>>= 0;
+            return seed;
+        };
+        // 幅度：每个通道 ±2（钳制在 0~255，绝不环绕翻转）。
+        const AMP = 2;
+        const jitter = () => (rnd() % (2 * AMP + 1)) - AMP;   // -AMP ~ +AMP
+        for (let i = 0; i < px.length; i += 4) {
+            // 仅扰动 RGB；alpha 保持不动，避免影响透明区域语义。
+            px[i]     = Math.min(255, Math.max(0, px[i]     + jitter()));
+            px[i + 1] = Math.min(255, Math.max(0, px[i + 1] + jitter()));
+            px[i + 2] = Math.min(255, Math.max(0, px[i + 2] + jitter()));
+        }
+
+        // 2) 叠加一个每次随机的整体色偏 Δ（每通道 -1~1），比纯噪声更抗二次压缩
+        const dR = (rnd() % 3) - 1;
+        const dG = (rnd() % 3) - 1;
+        const dB = (rnd() % 3) - 1;
+        if (dR || dG || dB) {
+            for (let i = 0; i < px.length; i += 4) {
+                px[i]     = Math.min(255, Math.max(0, px[i] + dR));
+                px[i + 1] = Math.min(255, Math.max(0, px[i + 1] + dG));
+                px[i + 2] = Math.min(255, Math.max(0, px[i + 2] + dB));
+            }
+        }
+
+        ctx.putImageData(img, 0, 0);
+        return canvas;
     }
 
     // 6. 还原功能
