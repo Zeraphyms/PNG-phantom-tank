@@ -185,6 +185,9 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById("img-cover-thumb").src = savedCoverDataUrl;
         document.getElementById("txt-cover-status").textContent = "自定义封面 [已持久保存]";
         fetch(savedCoverDataUrl).then(r => r.blob()).then(b => customCoverBlob = b);
+    } else if (window.DEFAULT_COVER_DATA_URL) {
+        // file:// 下内置封面若以本地路径加载会污染 canvas，统一改用内嵌 data URL。
+        document.getElementById("img-cover-thumb").src = window.DEFAULT_COVER_DATA_URL;
     }
 
     // 更换封面
@@ -221,7 +224,7 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("btn-reset-cover").addEventListener("click", () => {
         customCoverBlob = null;
         localStorage.removeItem("png_web_custom_cover");
-        document.getElementById("img-cover-thumb").src = "assets/default_cover.png";
+        document.getElementById("img-cover-thumb").src = window.DEFAULT_COVER_DATA_URL || "assets/default_cover.png";
         document.getElementById("txt-cover-status").textContent = "内置默认封面";
         alert("已恢复并保存为内置默认封面");
     });
@@ -1943,7 +1946,9 @@ document.addEventListener("DOMContentLoaded", () => {
     function loadImage(url) {
         return new Promise((resolve, reject) => {
             const img = new Image();
-            img.crossOrigin = "anonymous";
+            // blob:/data: 等本地对象 URL 不应设置 crossOrigin，否则在 file:// 页面会
+            // 被判为跨域而污染 canvas，导致 getImageData 抛错（伪装生成失败: undefined）。
+            if (/^https?:\/\//i.test(url)) img.crossOrigin = "anonymous";
             img.onload = () => resolve(img);
             img.onerror = reject;
             img.src = url;
