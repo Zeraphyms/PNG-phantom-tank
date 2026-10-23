@@ -946,6 +946,25 @@ document.addEventListener("DOMContentLoaded", () => {
     let chaosResultUrl = null;
     let chaosMode = "enc";
     let chaosNoScale = false;   // 是否按原图尺寸处理（不缩小）
+    let chaosBatchMode = false; // 多图批量模式开关
+    let chaosBatchFiles = [];   // 多图模式下已选文件列表
+    let chaosBatchResults = []; // 多图批量处理结果 {blob, filename, url, name}
+
+    // 图片 → 规范化 canvas（按"不缩小"开关决定是否压缩尺寸），失败抛错
+    async function chaosFileToCanvas(file) {
+        const img = await loadImage(URL.createObjectURL(file));
+        if (chaosNoScale) {
+            const w0 = img.naturalWidth || img.width;
+            const h0 = img.naturalHeight || img.height;
+            if (!w0 || !h0) throw new Error("图片尺寸无效");
+            const c = document.createElement("canvas");
+            c.width = w0;
+            c.height = h0;
+            c.getContext("2d", { willReadFrequently: true }).drawImage(img, 0, 0, w0, h0);
+            return c;
+        }
+        return ImageChaos.toCanvas(img);
+    }
 
     const chkChaosNoScale = document.getElementById("chk-chaos-noscale");
     chkChaosNoScale.addEventListener("change", () => {
@@ -967,24 +986,87 @@ document.addEventListener("DOMContentLoaded", () => {
     boxChaos.addEventListener("click", () => inputChaos.click());
     enableDropUpload(boxChaos, inputChaos);
 
+    // 单图 / 多图模式切换
+    function applyChaosModeUI() {
+        const btn = document.getElementById("btn-chaos-mode");
+        const uploadText = boxChaos.querySelector(".upload-text");
+        const uploadHint = boxChaos.querySelector(".upload-hint");
+        btn.textContent = chaosBatchMode ? "切换单图模式" : "切换多图模式";
+        // 多图模式没有"单一原图"概念，隐藏单图预览框与"还原为原图"按钮
+        document.getElementById("chaos-single-preview-row").style.display = chaosBatchMode ? "none" : "";
+        document.getElementById("btn-chaos-reset").style.display = chaosBatchMode ? "none" : "";
+        if (!chaosBatchMode) {
+            document.getElementById("card-chaos-batch").style.display = "none";
+            uploadText.textContent = "点击或拖拽图片到这里";
+            uploadHint.textContent = "处理全程在本地浏览器完成，不上传任何服务器";
+        } else {
+            uploadText.textContent = "点击或拖拽图片到这里 (可多选)";
+            uploadHint.textContent = "一次选多张，统一混淆或统一解混淆";
+        }
+    }
+
+    function resetChaosUploadBox() {
+        const preview = document.getElementById("img-chaos-preview");
+        preview.removeAttribute("src");
+        preview.style.display = "none";
+        boxChaos.querySelector(".upload-icon").style.display = "";
+        boxChaos.querySelector(".upload-text").style.display = "";
+        boxChaos.querySelector(".upload-hint").style.display = "";
+        const badge = document.getElementById("badge-chaos-info");
+        badge.style.display = "none";
+        badge.textContent = "";
+    }
+
+    function clearChaosBatchResults() {
+        chaosBatchResults.forEach(r => { if (r.url) URL.revokeObjectURL(r.url); });
+        chaosBatchResults = [];
+        document.getElementById("chaos-batch-grid").innerHTML = "";
+        document.getElementById("txt-chaos-batch-summary").textContent = "";
+        document.getElementById("card-chaos-batch").style.display = "none";
+    }
+
+    document.getElementById("btn-chaos-mode").addEventListener("click", () => {
+        chaosBatchMode = !chaosBatchMode;
+        chaosSourceCanvas = null;
+        chaosBatchFiles = [];
+        clearChaosResult();
+        clearChaosBatchResults();
+        resetChaosUploadBox();
+        // 切换 multiple 属性并清空已选，避免上一种模式的残留文件
+        if (chaosBatchMode) inputChaos.setAttribute("multiple", "");
+        else inputChaos.removeAttribute("multiple");
+        inputChaos.value = "";
+        applyChaosModeUI();
+    });
+    applyChaosModeUI();
+
     inputChaos.addEventListener("change", async (e) => {
         if (!e.target.files || e.target.files.length === 0) return;
+
+        // 多图批量模式：只记录文件，处理时统一转 canvas；重新选图会清空旧结果
+        if (chaosBatchMode) {
+            chaosBatchFiles = Array.from(e.target.files);
+            clearChaosBatchResults();
+            const preview = document.getElementById("img-chaos-preview");
+            preview.src = URL.createObjectURL(chaosBatchFiles[0]);
+            preview.style.display = "block";
+            boxChaos.querySelector(".upload-icon").style.display = "none";
+            boxChaos.querySelector(".upload-text").style.display = "none";
+            boxChaos.querySelector(".upload-hint").style.display = "none";
+            const badge = document.getElementById("badge-chaos-info");
+            badge.style.display = "block";
+            badge.style.color = "";
+            badge.textContent = chaosBatchFiles.length === 1
+                ? `已选: ${chaosBatchFiles[0].name}`
+                : `已批量多选 ${chaosBatchFiles.length} 张图片`;
+            return;
+        }
+
         const file = e.target.files[0];
         const preview = document.getElementById("img-chaos-preview");
 
         try {
-            const img = await loadImage(URL.createObjectURL(file));
-            if (chaosNoScale) {
-                const w0 = img.naturalWidth || img.width;
-                const h0 = img.naturalHeight || img.height;
-                if (!w0 || !h0) throw new Error("图片尺寸无效");
-                chaosSourceCanvas = document.createElement("canvas");
-                chaosSourceCanvas.width = w0;
-                chaosSourceCanvas.height = h0;
-                chaosSourceCanvas.getContext("2d", { willReadFrequently: true }).drawImage(img, 0, 0, w0, h0);
-            } else {
-                chaosSourceCanvas = ImageChaos.toCanvas(img);
-            }
+            chaosSourceCanvas = await chaosFileToCanvas(file);
 
             const srcUrl = chaosSourceCanvas.toDataURL("image/jpeg", 0.95);
             preview.src = srcUrl;
@@ -993,10 +1075,6 @@ document.addEventListener("DOMContentLoaded", () => {
             boxChaos.querySelector(".upload-text").style.display = "none";
             boxChaos.querySelector(".upload-hint").style.display = "none";
 
-            const srcImgEl = document.getElementById("img-chaos-src");
-            srcImgEl.src = srcUrl;
-            srcImgEl.hidden = false;
-            document.getElementById("chaos-empty-src").hidden = true;
             clearChaosResult();
 
             const badge = document.getElementById("badge-chaos-info");
@@ -1040,6 +1118,16 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     document.getElementById("btn-chaos-run").addEventListener("click", () => {
+        // 多图批量模式：逐张转 canvas → 统一混淆/解混淆 → 网格展示
+        if (chaosBatchMode) {
+            if (!chaosBatchFiles || chaosBatchFiles.length === 0) {
+                alert("请先选择要处理的图片");
+                return;
+            }
+            runChaosBatch();
+            return;
+        }
+
         if (!chaosSourceCanvas) {
             alert("请先选择一张图片");
             return;
@@ -1114,6 +1202,81 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
     refreshChaosActionState();
+
+    // 多图批量处理：逐张加载 → 混淆/解混淆 → 打包结果网格
+    async function runChaosBatch() {
+        const btn = document.getElementById("btn-chaos-run");
+        const label = chaosMode === "enc" ? "混淆" : "解混淆";
+        btn.disabled = true;
+        btn.textContent = `⏳ 正在批量${label}中...`;
+
+        clearChaosBatchResults();
+        const timeBase = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14);
+        let failCount = 0;
+
+        // 串行处理避免多张大图同时解码撑爆内存；每张之间让出主线程刷新进度
+        for (let i = 0; i < chaosBatchFiles.length; i++) {
+            const file = chaosBatchFiles[i];
+            btn.textContent = `⏳ 正在${label} (${i + 1}/${chaosBatchFiles.length})...`;
+            await new Promise(r => setTimeout(r, 0));
+            try {
+                const canvas = await chaosFileToCanvas(file);
+                const resultCanvas = ImageChaos.transform(canvas, chaosMode);
+                const blob = await new Promise((res, rej) => {
+                    resultCanvas.toBlob(b => b ? res(b) : rej(new Error("导出结果失败")), "image/jpeg", 0.95);
+                });
+                const baseName = (file.name || "image").replace(/\.[^.]+$/, "");
+                const filename = `${String(i + 1).padStart(3, "0")}_${baseName}_chaos_${timeBase}.jpg`;
+                chaosBatchResults.push({ blob, filename, url: URL.createObjectURL(blob), name: file.name });
+            } catch (err) {
+                failCount++;
+                console.warn(`[混沌批量] ${file.name} 处理失败:`, err);
+            }
+        }
+
+        if (chaosBatchResults.length === 0) {
+            alert(`批量${label}失败：没有一张图片处理成功`);
+            btn.disabled = false;
+            refreshChaosActionState();
+            return;
+        }
+
+        // 填充结果网格（复用拆解动图的网格样式，点击可看大图并左右切换）
+        const grid = document.getElementById("chaos-batch-grid");
+        grid.innerHTML = "";
+        chaosBatchResults.forEach((item) => {
+            const el = document.createElement("div");
+            el.className = "split-frame-item";
+            el.innerHTML = `<img src="${item.url}" alt="result" class="zoomable"><div class="split-frame-label">${item.name || item.filename}</div>`;
+            el.querySelector("img").addEventListener("click", () => {
+                const list = chaosBatchResults
+                    .filter(r => r && r.url)
+                    .map(r => ({ url: r.url, label: r.filename || "" }));
+                const idx = list.findIndex(it => it.url === item.url);
+                showModal(list, idx >= 0 ? idx : 0);
+            });
+            grid.appendChild(el);
+        });
+
+        const title = document.getElementById("txt-chaos-batch-title");
+        const summary = document.getElementById("txt-chaos-batch-summary");
+        if (failCount === 0) {
+            title.textContent = `🌀 多图批量${label}完成 (共 ${chaosBatchResults.length} 张)`;
+            summary.textContent = `成功处理 ${chaosBatchResults.length} 张图片，可一键全部保存！`;
+        } else {
+            title.textContent = `🌀 多图批量${label}完成 (成功 ${chaosBatchResults.length} 张，失败 ${failCount} 张)`;
+            summary.textContent = `成功 ${chaosBatchResults.length} 张，失败 ${failCount} 张（已跳过问题图片）`;
+        }
+        document.getElementById("card-chaos-batch").style.display = "block";
+
+        btn.disabled = false;
+        refreshChaosActionState();
+    }
+
+    // 多图批量结果一键保存
+    document.getElementById("btn-chaos-batch-download").addEventListener("click", () => {
+        downloadAll(chaosBatchResults);
+    });
 
     // 7. 下载与分享按钮
     document.getElementById("btn-download-disguise").addEventListener("click", () => downloadAll(lastDisguisedResults));
