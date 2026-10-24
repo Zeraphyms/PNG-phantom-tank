@@ -1723,6 +1723,364 @@ document.addEventListener("DOMContentLoaded", () => {
             }, i * 200);
         });
     });
+
+    // 8.2 电子包浆（复刻 Electrical Weathering v4，纯 Canvas 实现）
+    // 管线：可选水印 → 噪点(高斯混合) → 泛绿 → 压缩/缩放（官窑与民窑步骤顺序不同）
+    const boxEW = document.getElementById("box-ew-upload");
+    const inputEW = document.getElementById("input-ew-image");
+    let ewSourceCanvas = null;   // 原图 canvas
+    let ewResultBlob = null;
+    let ewResultUrl = null;
+    let ewMode = "classic";      // classic=官窑(SkiaYUV 误差累积) ng=民窑(矩阵混合)
+    let ewWatermarks = [];       // 预加载的水印 Image 对象
+    let ewRunning = false;
+
+    // 预设与原版一致：低(0,0.05,0.8) 中(0.02,0.1,0.85) 高(0.05,0.15,0.9)
+    const EW_PRESETS = {
+        low:    { noise: 0,    green: 0.05, quality: 0.8,  scale: 1 },
+        medium: { noise: 0.02, green: 0.1,  quality: 0.85, scale: 1 },
+        high:   { noise: 0.05, green: 0.15, quality: 0.9,  scale: 1 }
+    };
+
+    // 预加载水印（内嵌 data URL，file:// 下不会污染 canvas）
+    (function loadEwWatermarks() {
+        const src = window.EW_WATERMARKS || {};
+        Object.keys(src).forEach(k => {
+            const img = new Image();
+            img.onload = () => ewWatermarks.push(img);
+            img.src = src[k];
+        });
+    })();
+
+    boxEW.addEventListener("click", () => inputEW.click());
+    enableDropUpload(boxEW, inputEW);
+
+    const ewSliders = {
+        noise:   document.getElementById("ew-slider-noise"),
+        green:   document.getElementById("ew-slider-green"),
+        quality: document.getElementById("ew-slider-quality"),
+        scale:   document.getElementById("ew-slider-scale")
+    };
+
+    function refreshEwSliderVals() {
+        document.getElementById("ew-val-noise").textContent = Math.round(ewSliders.noise.value * 100) + "%";
+        document.getElementById("ew-val-green").textContent = Math.round(ewSliders.green.value * 100) + "%";
+        document.getElementById("ew-val-quality").textContent = Math.round(ewSliders.quality.value * 100) + "%";
+        document.getElementById("ew-val-scale").textContent = Math.round(ewSliders.scale.value * 100) + "%";
+    }
+    Object.values(ewSliders).forEach(s => s.addEventListener("input", () => {
+        setEwPreset("custom");
+        refreshEwSliderVals();
+    }));
+    refreshEwSliderVals();
+
+    function setEwPreset(name) {
+        document.querySelectorAll("#ew-preset-group .segmented-btn").forEach(b => {
+            b.classList.toggle("active", b.getAttribute("data-preset") === name);
+        });
+    }
+
+    document.querySelectorAll("#ew-preset-group .segmented-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            const p = btn.getAttribute("data-preset");
+            if (p !== "custom" && EW_PRESETS[p]) {
+                const v = EW_PRESETS[p];
+                ewSliders.noise.value = v.noise;
+                ewSliders.green.value = v.green;
+                ewSliders.quality.value = v.quality;
+                ewSliders.scale.value = v.scale;
+                refreshEwSliderVals();
+            }
+            setEwPreset(p);
+        });
+    });
+
+    document.querySelectorAll("#ew-mode-group .segmented-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            document.querySelectorAll("#ew-mode-group .segmented-btn").forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+            ewMode = btn.getAttribute("data-mode");
+        });
+    });
+
+    inputEW.addEventListener("change", async (e) => {
+        if (!e.target.files || e.target.files.length === 0) return;
+        const file = e.target.files[0];
+        const preview = document.getElementById("img-ew-preview");
+        try {
+            const img = await loadImage(URL.createObjectURL(file));
+            const w = img.naturalWidth || img.width;
+            const h = img.naturalHeight || img.height;
+            if (!w || !h) throw new Error("图片尺寸无效");
+            ewSourceCanvas = document.createElement("canvas");
+            ewSourceCanvas.width = w;
+            ewSourceCanvas.height = h;
+            ewSourceCanvas.getContext("2d", { willReadFrequently: true }).drawImage(img, 0, 0, w, h);
+
+            preview.src = ewSourceCanvas.toDataURL("image/jpeg", 0.95);
+            preview.style.display = "block";
+            boxEW.querySelector(".upload-icon").style.display = "none";
+            boxEW.querySelector(".upload-text").style.display = "none";
+            boxEW.querySelector(".upload-hint").style.display = "none";
+            clearEwResult();
+
+            const badge = document.getElementById("badge-ew-info");
+            badge.style.display = "block";
+            badge.style.color = "";
+            badge.textContent = `已选: ${file.name} (${w}x${h})`;
+            // 与原版一致：图片太小不允许叠水印
+            document.getElementById("chk-ew-watermark").disabled = !(w >= 240 && h >= 120);
+        } catch (err) {
+            alert("图片加载失败: " + err.message);
+        }
+    });
+
+    function clearEwResult() {
+        if (ewResultUrl) {
+            URL.revokeObjectURL(ewResultUrl);
+            ewResultUrl = null;
+        }
+        ewResultBlob = null;
+        const out = document.getElementById("img-ew-out");
+        out.removeAttribute("src");
+        out.hidden = true;
+        document.getElementById("ew-empty-out").hidden = false;
+        document.getElementById("card-ew-result").style.display = "none";
+        document.getElementById("txt-ew-summary").textContent = "";
+    }
+
+    // ---- 核心算法（逐条对应原版 WeatheringMachine.cs）----
+
+    // 噪点：高斯噪声图与原图按强度混合（对应 Noising，Randn 均值0标准差255）
+    function ewNoising(canvas, intensity) {
+        const ctx = canvas.getContext("2d", { willReadFrequently: true });
+        const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const px = img.data;
+        let seed = (Date.now() ^ (Math.random() * 0xFFFFFFFF)) >>> 0;
+        const rnd = () => {
+            seed ^= seed << 13; seed >>>= 0;
+            seed ^= seed >>> 17;
+            seed ^= seed << 5;  seed >>>= 0;
+            return seed / 4294967296;
+        };
+        // Box-Muller 生成正态分布，除以 255 对齐原版标准差
+        const gauss = () => {
+            const u = Math.max(1e-9, rnd());
+            return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rnd());
+        };
+        const k = intensity;
+        for (let i = 0; i < px.length; i += 4) {
+            px[i]     = Math.round((1 - k) * px[i]     + k * (gauss() * 255));
+            px[i + 1] = Math.round((1 - k) * px[i + 1] + k * (gauss() * 255));
+            px[i + 2] = Math.round((1 - k) * px[i + 2] + k * (gauss() * 255));
+        }
+        ctx.putImageData(img, 0, 0);
+    }
+
+    // 民窑泛绿：纯绿混合 + 压暗 + G 通道抬升，三步矩阵运算（对应 Greening）
+    function ewGreeningNG(canvas, intensity) {
+        const ctx = canvas.getContext("2d", { willReadFrequently: true });
+        const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const px = img.data;
+        const k = intensity;
+        for (let i = 0; i < px.length; i += 4) {
+            // 1) 与纯绿 (0,255,0) 按强度混合
+            let R = (1 - k) * px[i]     + k * 0;
+            let G = (1 - k) * px[i + 1] + k * 255;
+            let B = (1 - k) * px[i + 2] + k * 0;
+            // 2) 全图压暗 128×强度（原版 ConvertTo 1.0, -128i）
+            R -= 128 * k; G -= 128 * k; B -= 128 * k;
+            // 3) G 通道单独 +32×强度
+            G += 32 * k;
+            px[i]     = Math.round(Math.max(0, Math.min(255, R)));
+            px[i + 1] = Math.round(Math.max(0, Math.min(255, G)));
+            px[i + 2] = Math.round(Math.max(0, Math.min(255, B)));
+        }
+        ctx.putImageData(img, 0, 0);
+    }
+
+    // 水印：右下角原样覆盖 alpha>0 的像素（对应 AddWatermark，不缩放）
+    function ewAddWatermarks(canvas) {
+        if (ewWatermarks.length === 0) return;
+        const ctx = canvas.getContext("2d", { willReadFrequently: true });
+        for (const wm of ewWatermarks) {
+            const x = canvas.width - wm.width;
+            const y = canvas.height - wm.height;
+            if (x < 0 || y < 0) continue;
+            ctx.drawImage(wm, x, y);
+        }
+    }
+
+    // 压缩：JPEG 往返（对应 Compressing，质量 = (1-强度)×100）
+    function ewCompress(canvas, intensity) {
+        return new Promise(resolve => {
+            const url = canvas.toDataURL("image/jpeg", Math.max(0.01, 1 - intensity));
+            const img = new Image();
+            img.onload = () => {
+                const out = document.createElement("canvas");
+                out.width = canvas.width;
+                out.height = canvas.height;
+                out.getContext("2d", { willReadFrequently: true }).drawImage(img, 0, 0);
+                resolve(out);
+            };
+            img.onerror = () => resolve(canvas);
+            img.src = url;
+        });
+    }
+
+    // 缩放：等比缩放（对应 Resize，INTER_AREA）
+    function ewScale(canvas, ratio) {
+        const w = Math.max(1, Math.round(canvas.width * ratio));
+        const h = Math.max(1, Math.round(canvas.height * ratio));
+        const out = document.createElement("canvas");
+        out.width = w;
+        out.height = h;
+        const ctx = out.getContext("2d", { willReadFrequently: true });
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = "high";
+        ctx.drawImage(canvas, 0, 0, w, h);
+        return out;
+    }
+
+    function cloneCanvas(src) {
+        const out = document.createElement("canvas");
+        out.width = src.width;
+        out.height = src.height;
+        out.getContext("2d", { willReadFrequently: true }).drawImage(src, 0, 0);
+        return out;
+    }
+
+    // 官窑泛绿：整数定点 RGB→YUV→RGB 往返，误差逐轮累积（对应 SkiaYUV ×N 轮）
+    function ewGreeningClassicRounds(canvas, rounds) {
+        const ctx = canvas.getContext("2d", { willReadFrequently: true });
+        const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const px = img.data;
+        const clampRGB = x => x < 0 ? 0 : (x > 255 ? 255 : x);
+        const clampUV = x => x < -128 ? -128 : (x > 127 ? 127 : x);
+        for (let r = 0; r < rounds; r++) {
+            for (let i = 0; i < px.length; i += 4) {
+                const R = px[i], G = px[i + 1], B = px[i + 2];
+                // 原版权重 77/150/29（BGR 序）+ 每通道 -1 偏移，制造 YUV 舍入误差
+                const Y  = clampRGB(((77 * G + 150 * R + 29 * B) >> 8) - 1);
+                const U  = clampUV(((-43 * G - 85 * R + 128 * B) >> 8) - 1);
+                const V  = clampUV(((128 * G - 107 * R - 21 * B) >> 8) - 1);
+                const y16 = Y << 16;
+                px[i]     = clampRGB((y16 + 116130 * U) >> 16);
+                px[i + 1] = clampRGB((y16 - 22553 * U - 46802 * V) >> 16);
+                px[i + 2] = clampRGB((y16 + 91881 * V) >> 16);
+            }
+        }
+        ctx.putImageData(img, 0, 0);
+    }
+
+    async function ewProcess() {
+        // 官窑顺序：水印→噪点→泛绿→缩放→压缩；民窑顺序：水印→噪点→泛绿→压缩→缩放
+        let canvas = cloneCanvas(ewSourceCanvas);
+
+        const useWm = document.getElementById("chk-ew-watermark").checked;
+        if (useWm) ewAddWatermarks(canvas);
+
+        const p = {
+            noise: parseFloat(ewSliders.noise.value),
+            green: parseFloat(ewSliders.green.value),
+            quality: parseFloat(ewSliders.quality.value),
+            scale: parseFloat(ewSliders.scale.value)
+        };
+
+        if (p.noise > 0) ewNoising(canvas, p.noise);
+
+        if (p.green > 0) {
+            if (ewMode === "classic") {
+                // 官窑逐轮误差累积，轮间让出主线程刷新进度
+                const rounds = Math.round(p.green * 100);
+                const per = Math.max(1, Math.ceil(rounds / 20));
+                let done = 0;
+                while (done < rounds) {
+                    const step = Math.min(per, rounds - done);
+                    ewGreeningClassicRounds(canvas, step);
+                    done += step;
+                    await new Promise(r => setTimeout(r, 0));
+                }
+            } else {
+                ewGreeningNG(canvas, p.green);
+            }
+        }
+
+        if (ewMode === "classic") {
+            if (p.scale !== 1) canvas = ewScale(canvas, p.scale);
+            if (p.quality > 0) canvas = await ewCompress(canvas, p.quality);
+        } else {
+            if (p.quality > 0) canvas = await ewCompress(canvas, p.quality);
+            if (p.scale !== 1) canvas = ewScale(canvas, p.scale);
+        }
+        return canvas;
+    }
+
+    document.getElementById("btn-ew-run").addEventListener("click", async () => {
+        if (!ewSourceCanvas) { alert("请先选择一张图片"); return; }
+        if (ewRunning) return;
+        ewRunning = true;
+
+        const btn = document.getElementById("btn-ew-run");
+        const label = ewMode === "classic" ? "官窑" : "民窑";
+        btn.disabled = true;
+        btn.textContent = `⏳ ${label}包浆中...`;
+        const t0 = performance.now();
+
+        try {
+            const result = await ewProcess();
+            const blob = await new Promise((res, rej) => {
+                result.toBlob(b => b ? res(b) : rej(new Error("导出失败")), "image/jpeg", 0.92);
+            });
+            if (ewResultUrl) URL.revokeObjectURL(ewResultUrl);
+            ewResultBlob = blob;
+            ewResultUrl = URL.createObjectURL(blob);
+
+            const outEl = document.getElementById("img-ew-out");
+            outEl.src = ewResultUrl;
+            outEl.hidden = false;
+            document.getElementById("ew-empty-out").hidden = true;
+            document.getElementById("card-ew-result").style.display = "block";
+            document.getElementById("txt-ew-result-title").textContent = `🏺 ${label}包浆完成`;
+            document.getElementById("txt-ew-summary").textContent =
+                `耗时 ${Math.round(performance.now() - t0)}ms | 成品 ${result.width}x${result.height} | 大小 ${(blob.size / 1024).toFixed(1)} KB`;
+        } catch (err) {
+            alert("包浆失败: " + err.message);
+        } finally {
+            ewRunning = false;
+            btn.disabled = false;
+            btn.textContent = "🏺 立即包浆";
+        }
+    });
+
+    document.getElementById("btn-ew-revert").addEventListener("click", () => {
+        if (!ewSourceCanvas) { alert("请先选择一张图片"); return; }
+        clearEwResult();
+        alert("已还原为原图（包浆不可逆，请以本地图册里的原图为准）");
+        const preview = document.getElementById("img-ew-preview");
+        preview.src = ewSourceCanvas.toDataURL("image/jpeg", 0.95);
+        preview.style.display = "block";
+    });
+
+    document.getElementById("btn-ew-download").addEventListener("click", () => {
+        if (!ewResultBlob) return;
+        const a = document.createElement("a");
+        const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14);
+        a.href = ewResultUrl;
+        a.download = `weathered_${stamp}.jpg`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+    });
+
+    // 点击成品可查看大图（支持缩放）
+    document.getElementById("img-ew-out").addEventListener("click", () => {
+        const el = document.getElementById("img-ew-out");
+        if (el && el.getAttribute("src") && !el.hidden) {
+            showModal(el.src);
+        }
+    });
+
     const modal = document.getElementById("modal-preview");
     const modalImg = document.getElementById("modal-img");
     const modalStage = document.getElementById("modal-stage");

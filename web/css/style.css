@@ -1169,6 +1169,80 @@ html.dark .cover-row {
   white-space: nowrap;
 }
 
+/* ===== 电子包浆 ===== */
+.ew-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.ew-slider-label {
+  flex: 0 0 34px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.ew-slider {
+  flex: 1;
+  min-width: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  height: 22px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.ew-slider::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--border-strong);
+}
+
+.ew-slider::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  margin-top: -6px;
+  border-radius: 50%;
+  background: var(--primary);
+  border: 2px solid #fff;
+  box-shadow: var(--shadow-xs);
+}
+
+.ew-slider::-moz-range-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--border-strong);
+}
+
+.ew-slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--primary);
+  border: 2px solid #fff;
+}
+
+.ew-slider-val {
+  flex: 0 0 44px;
+  text-align: right;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+#btn-ew-revert {
+  height: 50px;
+  border-radius: var(--radius);
+  padding: 0 14px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
 /* ===== 底部信息 ===== */
 .app-footer {
   padding: 4px 16px 26px;
