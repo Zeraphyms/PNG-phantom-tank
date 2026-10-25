@@ -84,7 +84,8 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("btn-feature-home").addEventListener("click", () => switchPage("page-disguise"));
 
     // 1.0.1 直达路径：启动时按 URL 路径进入对应功能（/split /chaos /clean /weathering /processing）
-    // 线上由 Cloudflare Pages 的 _redirects 把这些路径重写到 index.html；本地 file:// 无路径概念不受影响
+    // 站点无 404.html，Cloudflare Pages 按 SPA 兜底把所有未知路径 200 返回 index.html，
+    // 无需 _redirects（写了反而会因 /index.html 规范化 308 跳回 /）；本地 file:// 不受影响
     (function routeByPath() {
         if (!location.protocol.startsWith("http")) return;
         const p = location.pathname.replace(/\/+$/, "") || "/";
