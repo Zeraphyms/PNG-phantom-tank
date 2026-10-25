@@ -35,7 +35,7 @@ document.addEventListener("DOMContentLoaded", () => {
         "page-merge":     { name: "🧩 图片处理", path: "/processing" }
     };
 
-    function switchPage(targetId) {
+    function switchPage(targetId, skipUrlSync = false) {
         tabPages.forEach(p => p.classList.remove("active"));
         const page = document.getElementById(targetId);
         if (page) page.classList.add("active");
@@ -56,6 +56,15 @@ document.addEventListener("DOMContentLoaded", () => {
             mi.classList.toggle("active", mi.getAttribute("data-tab") === targetId);
         });
 
+        // 地址栏同步：线上点子功能时把路径推进去（可直接复制分享），回主 Tab 清回 /
+        // skipUrlSync 供浏览器前进/后退（popstate）复用，避免重复压栈
+        if (!skipUrlSync && location.protocol.startsWith("http")) {
+            const targetPath = isFeature ? FEATURE_PAGES[targetId].path : "/";
+            if (location.pathname !== targetPath) {
+                history.pushState({ page: targetId }, "", targetPath);
+            }
+        }
+
         if (targetId === "page-history") {
             renderHistory();
         }
@@ -65,21 +74,28 @@ document.addEventListener("DOMContentLoaded", () => {
         btn.addEventListener("click", () => switchPage(btn.getAttribute("data-tab")));
     });
 
-    // 功能模式「回到主页」：回默认页；带路径访问时顺带清掉地址栏路径
-    document.getElementById("btn-feature-home").addEventListener("click", () => {
-        if (location.protocol.startsWith("http") && FEATURE_PAGES && Object.values(FEATURE_PAGES).some(f => f.path === location.pathname)) {
-            history.replaceState(null, "", "/");
-        }
-        switchPage("page-disguise");
+    // 浏览器前进/后退：按历史记录里的页面 id 还原界面
+    window.addEventListener("popstate", (e) => {
+        const pid = (e.state && e.state.page) || "page-disguise";
+        switchPage(pid, true);
     });
 
-    // 1.0.1 直达路径：启动时按 URL 路径进入对应功能（/split /chaos /clean /weathering）
+    // 功能模式「回到主页」：回默认页
+    document.getElementById("btn-feature-home").addEventListener("click", () => switchPage("page-disguise"));
+
+    // 1.0.1 直达路径：启动时按 URL 路径进入对应功能（/split /chaos /clean /weathering /processing）
     // 线上由 Cloudflare Pages 的 _redirects 把这些路径重写到 index.html；本地 file:// 无路径概念不受影响
     (function routeByPath() {
         if (!location.protocol.startsWith("http")) return;
         const p = location.pathname.replace(/\/+$/, "") || "/";
         const hit = Object.entries(FEATURE_PAGES).find(([, f]) => f.path === p);
-        if (hit) switchPage(hit[0]);
+        if (hit) {
+            switchPage(hit[0], true);
+            // 直达进入也压一条历史，后退键能回到主页
+            history.replaceState({ page: hit[0] }, "", p);
+        } else {
+            history.replaceState({ page: "page-disguise" }, "", location.pathname);
+        }
     })();
 
     // 1.1 更多功能菜单
