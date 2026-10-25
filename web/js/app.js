@@ -3352,7 +3352,8 @@ document.addEventListener("DOMContentLoaded", () => {
         merge: document.getElementById("panel-merge-merge"),
         gridmerge: document.getElementById("panel-merge-gridmerge"),
         grid: document.getElementById("panel-merge-grid"),
-        overlay: document.getElementById("panel-merge-overlay")
+        overlay: document.getElementById("panel-merge-overlay"),
+        idphoto: document.getElementById("panel-merge-idphoto")
     };
     let mergeSubMode = "merge";
     document.querySelectorAll("#merge-sub-tabs .segmented-btn").forEach(btn => {
@@ -3952,6 +3953,181 @@ document.addEventListener("DOMContentLoaded", () => {
 
     window.addEventListener("resize", () => {
         if (ovBase) renderOv();
+    });
+
+    // 8.4 相片处理：标准证件照制作（1寸/2寸系列 + 底色 + 5寸相纸排版）
+    // 尺寸标准：300DPI 换算（mm ÷ 25.4 × 300），行业通识规格
+    const IDP_SIZES = {
+        "1":  { label: "1 寸",   mm: "25×35mm",   w: 295, h: 413 },
+        "s1": { label: "小 1 寸", mm: "22×32mm",   w: 260, h: 378 },
+        "b1": { label: "大 1 寸", mm: "33×48mm",   w: 390, h: 567 },
+        "2":  { label: "2 寸",   mm: "35×49mm",   w: 413, h: 579 },
+        "s2": { label: "小 2 寸", mm: "35×45mm",   w: 413, h: 531 },
+        "b2": { label: "大 2 寸", mm: "35×53mm",   w: 413, h: 626 }
+    };
+    const IDP_SHEET = { w: 1500, h: 1050 };   // 5寸相纸（300DPI 12.7×8.9cm 横放）
+
+    const boxIdp = document.getElementById("box-idp-upload");
+    const inputIdp = document.getElementById("input-idp-image");
+    let idpSource = null;        // { img, w, h }
+    let idpSizeKey = "1";
+    let idpBg = "#FFFFFF";
+    let idpScale = 1, idpDx = 0, idpDy = 0;
+    const idpCanvas = document.getElementById("canvas-idp-out");
+
+    boxIdp.addEventListener("click", () => inputIdp.click());
+    enableDropUpload(boxIdp, inputIdp);
+
+    inputIdp.addEventListener("change", async (e) => {
+        if (!e.target.files || e.target.files.length === 0) return;
+        const file = e.target.files[0];
+        try {
+            const img = await loadImage(URL.createObjectURL(file));
+            const w = img.naturalWidth || img.width;
+            const h = img.naturalHeight || img.height;
+            if (!w || !h) throw new Error("图片尺寸无效");
+            idpSource = { img, w, h };
+            // 初始缩放：按证件照高度容纳人像主体（取图高的 75% 为人像参考）→ 让头部约占 2/3
+            idpScale = 1; idpDx = 0; idpDy = 0;
+            syncIdpSliders();
+            const preview = document.getElementById("img-idp-preview");
+            preview.src = idpSource.img.src;
+            preview.style.display = "block";
+            boxIdp.querySelector(".upload-icon").style.display = "none";
+            boxIdp.querySelector(".upload-text").style.display = "none";
+            boxIdp.querySelector(".upload-hint").style.display = "none";
+            const badge = document.getElementById("badge-idp-info");
+            badge.style.display = "block";
+            badge.style.color = "";
+            badge.textContent = `已选: ${file.name} (${w}x${h})`;
+            renderIdp();
+        } catch (err) {
+            alert("图片加载失败: " + err.message);
+        }
+    });
+
+    document.querySelectorAll("#idp-size-group .segmented-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            document.querySelectorAll("#idp-size-group .segmented-btn").forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+            idpSizeKey = btn.getAttribute("data-size");
+            const s = IDP_SIZES[idpSizeKey];
+            document.getElementById("txt-idp-size-info").textContent = `${s.mm} · ${s.w}×${s.h}px · 300DPI`;
+            renderIdp();
+        });
+    });
+    document.querySelectorAll("#idp-bg-group .merge-bg-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            document.querySelectorAll("#idp-bg-group .merge-bg-btn").forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+            idpBg = btn.getAttribute("data-bg");
+            renderIdp();
+        });
+    });
+
+    const idpSliders = {
+        scale: document.getElementById("idp-slider-scale"),
+        x: document.getElementById("idp-slider-x"),
+        y: document.getElementById("idp-slider-y")
+    };
+    function syncIdpSliders() {
+        idpSliders.scale.value = idpScale;
+        idpSliders.x.value = idpDx;
+        idpSliders.y.value = idpDy;
+        document.getElementById("idp-val-scale").textContent = Math.round(idpScale * 100) + "%";
+        document.getElementById("idp-val-x").textContent = (idpDx >= 0 ? "+" : "") + Math.round(idpDx * 100);
+        document.getElementById("idp-val-y").textContent = (idpDy >= 0 ? "+" : "") + Math.round(idpDy * 100);
+    }
+    idpSliders.scale.addEventListener("input", () => { idpScale = parseFloat(idpSliders.scale.value); syncIdpSliders(); renderIdp(); });
+    idpSliders.x.addEventListener("input", () => { idpDx = parseFloat(idpSliders.x.value); syncIdpSliders(); renderIdp(); });
+    idpSliders.y.addEventListener("input", () => { idpDy = parseFloat(idpSliders.y.value); syncIdpSliders(); renderIdp(); });
+
+    // 核心：源图 → 证件照画布。源图按高度适配画布（scale=1 时图高 = 画布高 × 4/3，
+    // 标准证件照构图：头顶留白少量、人像占满），dx/dy 为偏移比例。
+    function buildIdpCanvas() {
+        const s = IDP_SIZES[idpSizeKey];
+        const canvas = document.createElement("canvas");
+        canvas.width = s.w;
+        canvas.height = s.h;
+        const ctx = canvas.getContext("2d");
+        ctx.fillStyle = idpBg;
+        ctx.fillRect(0, 0, s.w, s.h);
+        if (idpSource) {
+            const baseK = (s.h * 4 / 3) / idpSource.h;
+            const k = baseK * idpScale;
+            const dw = idpSource.w * k, dh = idpSource.h * k;
+            // 居中 + 偏移；默认垂直略上移（脸部在上半）
+            const cx = (s.w - dw) / 2 + idpDx * s.w;
+            const cy = (s.h - dh) / 2 - dh * 0.08 + idpDy * s.h;
+            ctx.drawImage(idpSource.img, cx, cy, dw, dh);
+        }
+        return { canvas, w: s.w, h: s.h, size: s };
+    }
+
+    function renderIdp() {
+        if (!idpSource) {
+            document.getElementById("card-idp-result").style.display = "none";
+            return;
+        }
+        const { canvas, w, h, size } = buildIdpCanvas();
+        idpCanvas.width = w;
+        idpCanvas.height = h;
+        idpCanvas.getContext("2d").drawImage(canvas, 0, 0);
+        idpCanvas.hidden = false;
+        document.getElementById("card-idp-result").style.display = "block";
+        document.getElementById("txt-idp-summary").textContent =
+            `${size.label} · ${size.mm} · ${w}×${h}px（300DPI）`;
+    }
+
+    document.getElementById("btn-idp-download").addEventListener("click", () => {
+        if (!idpSource) { alert("请先上传照片"); return; }
+        const { canvas, size } = buildIdpCanvas();
+        canvas.toBlob(blob => {
+            if (!blob) { alert("导出失败"); return; }
+            const a = document.createElement("a");
+            const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14);
+            a.href = URL.createObjectURL(blob);
+            a.download = `idphoto_${size.label.replace(/\s/g, "")}_${stamp}.jpg`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        }, "image/jpeg", 0.95);
+    });
+
+    // 5 寸相纸排版：1 寸系列一版 8 张（4列×2行）、2 寸系列一版 4 张（2×2），带裁切留白
+    document.getElementById("btn-idp-download-sheet").addEventListener("click", () => {
+        if (!idpSource) { alert("请先上传照片"); return; }
+        const { canvas } = buildIdpCanvas();
+        const s = IDP_SIZES[idpSizeKey];
+        const isOneInch = s.h <= 531;   // 1寸系列（高 ≤531）
+        const cols = isOneInch ? 4 : 2;
+        const rows = isOneInch ? 2 : 2;
+        const gapX = 30, gapY = 30, edge = 40;
+        const sheet = document.createElement("canvas");
+        sheet.width = IDP_SHEET.w;
+        sheet.height = IDP_SHEET.h;
+        const sctx = sheet.getContext("2d");
+        sctx.fillStyle = "#FFFFFF";
+        sctx.fillRect(0, 0, sheet.width, sheet.height);
+        const totalW = cols * s.w + (cols - 1) * gapX;
+        const totalH = rows * s.h + (rows - 1) * gapY;
+        const startX = (sheet.width - totalW) / 2;
+        const startY = (sheet.height - totalH) / 2;
+        for (let r = 0; r < rows; r++) {
+            for (let c = 0; c < cols; c++) {
+                sctx.drawImage(canvas, startX + c * (s.w + gapX), startY + r * (s.h + gapY));
+            }
+        }
+        sheet.toBlob(blob => {
+            if (!blob) { alert("导出失败"); return; }
+            const a = document.createElement("a");
+            const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14);
+            a.href = URL.createObjectURL(blob);
+            a.download = `idphoto_sheet_${isOneInch ? "1inchx8" : "2inchx4"}_${stamp}.jpg`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        }, "image/jpeg", 0.95);
     });
 
     const modal = document.getElementById("modal-preview");
