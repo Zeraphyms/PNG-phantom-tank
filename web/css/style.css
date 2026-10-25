@@ -1398,6 +1398,66 @@ html.dark .cover-row {
   text-decoration: underline;
 }
 
+/* 编辑模式行 + 细分弹出菜单 */
+.gm-mode-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.gm-mode-hint {
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+
+.gm-split-pop {
+  position: absolute;
+  z-index: 20;
+  display: flex;
+  gap: 4px;
+  padding: 6px;
+  border-radius: 10px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  box-shadow: var(--shadow-xs);
+}
+
+.gm-split-pop[hidden] { display: none; }
+
+.gm-split-btn {
+  border: 1px solid var(--border);
+  background: var(--surface-soft);
+  color: var(--text-muted);
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 5px 9px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.gm-split-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+/* 细分模式下块的可点击提示 */
+.gm-editor-grid.split-mode .gm-block-hit {
+  cursor: crosshair;
+}
+
+.gm-editor-grid.split-mode .gm-block-hit:hover {
+  outline: 2px dashed var(--primary);
+  outline-offset: -2px;
+}
+
+.gm-block-hit {
+  position: absolute;
+  box-sizing: border-box;
+  z-index: 4;
+}
+
 /* 块轮廓（合并后的大块实线框） */
 .gm-block-outline {
   position: absolute;

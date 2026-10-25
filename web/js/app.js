@@ -2811,9 +2811,11 @@ document.addEventListener("DOMContentLoaded", () => {
     // vEdges[r][c] = 列 c 与 c+1 之间、行 r 处的竖边（c: 0..cols-2）
     let gmECols = 3, gmERows = 2;
     let gmHEdges = [], gmVEdges = [];   // true = 边打开（分割）
+    let gmSplits = [];                  // 细分层：[{ blockIndex, dir: 'h'|'v', n }]（对当前连通块再等分）
     let gmOrient = "h";                 // h=横切（宽>高，如 3x2），v=竖切（高>宽，如 2x3）
     let gmDivide = "6";                 // 当前等分份数
-    let gmUndoStack = [];               // 边状态快照栈（每次合并/拆分前压栈）
+    let gmUndoStack = [];               // 状态快照栈
+    let gmTool = "merge";               // merge=点边线合并，split=点块细分
 
     // 份数 → 行列（按方向取窄边/长边；正方形份数不受方向影响）
     function gmDivideDims(divide, orient) {
@@ -2838,7 +2840,8 @@ document.addEventListener("DOMContentLoaded", () => {
         return {
             cols: gmECols, rows: gmERows,
             h: gmHEdges.map(r => r.slice()),
-            v: gmVEdges.map(r => r.slice())
+            v: gmVEdges.map(r => r.slice()),
+            splits: gmSplits.map(s => ({ ...s }))
         };
     }
 
@@ -2846,20 +2849,20 @@ document.addEventListener("DOMContentLoaded", () => {
         gmECols = cols; gmERows = rows;
         gmHEdges = Array.from({ length: rows - 1 }, () => Array(cols).fill(true));
         gmVEdges = Array.from({ length: rows }, () => Array(cols - 1).fill(true));
+        gmSplits = [];   // [{ blockIndex, dir: 'h'|'v', n }] 细分层（blockIndex 对应 gmEditorBlocks 结果）
         gmUndoStack = [];
         renderGmEditor();
         refreshGmBadge();
         scheduleGmPreview();
     }
 
-    // 由边状态推导矩形块列表（连通区域；连通块必为矩形——由边模型保证）
+    // 基础连通块（边模型），再叠加细分层：每个叶子矩形
     function gmEditorBlocks() {
         const visited = Array.from({ length: gmERows }, () => Array(gmECols).fill(false));
         const rects = [];
         for (let r = 0; r < gmERows; r++) {
             for (let c = 0; c < gmECols; c++) {
                 if (visited[r][c]) continue;
-                // BFS 求连通块
                 let c0 = c, r0 = r, c1 = c, r1 = r;
                 const q = [[r, c]];
                 visited[r][c] = true;
@@ -2867,7 +2870,6 @@ document.addEventListener("DOMContentLoaded", () => {
                     const [cr, cc] = q.pop();
                     c0 = Math.min(c0, cc); r0 = Math.min(r0, cr);
                     c1 = Math.max(c1, cc); r1 = Math.max(r1, cr);
-                    // 四方向：边关闭才连通
                     if (cr > 0 && !gmHEdges[cr - 1][cc] && !visited[cr - 1][cc]) { visited[cr - 1][cc] = true; q.push([cr - 1, cc]); }
                     if (cr < gmERows - 1 && !gmHEdges[cr][cc] && !visited[cr + 1][cc]) { visited[cr + 1][cc] = true; q.push([cr + 1, cc]); }
                     if (cc > 0 && !gmVEdges[cr][cc - 1] && !visited[cr][cc - 1]) { visited[cr][cc - 1] = true; q.push([cr, cc - 1]); }
@@ -2879,38 +2881,46 @@ document.addEventListener("DOMContentLoaded", () => {
         return rects;
     }
 
-    // 块列表 → 归一化矩形（图片填充顺序用）
-    function gmEditorLayout() {
-        return gmEditorBlocks().map(b => [b.c0 / gmECols, b.r0 / gmERows, b.cw / gmECols, b.rh / gmERows]);
+    // 细分展开：基础块 + splits → 叶子矩形列表。
+    // splits 直接按【叶子矩形坐标】记录（x, y, w, h 为格子单位浮点），
+    // 应用时递归匹配：一个 split 若落在已有 split 的子矩形内，则继续对子矩形细分（支持嵌套）。
+    function gmEditorLeaves() {
+        const base = gmEditorBlocks();
+        let leaves = base.map((b, i) => ({ c0: b.c0, r0: b.r0, cw: b.cw, rh: b.rh, baseIndex: i }));
+        // 逐个应用 split：找到完全包含该矩形的叶子，替换为 n 个子矩形
+        for (const s of gmSplits) {
+            const idx = leaves.findIndex(L =>
+                s.x >= L.c0 - 1e-6 && s.y >= L.r0 - 1e-6 &&
+                s.x + s.w <= L.c0 + L.cw + 1e-6 && s.y + s.h <= L.r0 + L.rh + 1e-6
+            );
+            if (idx < 0) continue;   // 找不到（结构已变，防御）
+            const L = leaves[idx];
+            const subs = [];
+            for (let k = 0; k < s.n; k++) {
+                if (s.dir === "h") {
+                    subs.push({ c0: L.c0, r0: L.r0 + k * L.rh / s.n, cw: L.cw, rh: L.rh / s.n, baseIndex: L.baseIndex });
+                } else {
+                    subs.push({ c0: L.c0 + k * L.cw / s.n, r0: L.r0, cw: L.cw / s.n, rh: L.rh, baseIndex: L.baseIndex });
+                }
+            }
+            leaves.splice(idx, 1, ...subs);
+        }
+        return leaves;
     }
 
-    // 渲染编辑器：格子 + 可点边线
+    // 叶子矩形 → 归一化布局（图片填充顺序）
+    function gmEditorLayout() {
+        return gmEditorLeaves().map(b => [b.c0 / gmECols, b.r0 / gmERows, b.cw / gmECols, b.rh / gmERows]);
+    }
+
+    // 渲染编辑器：叶子块轮廓 + 可点边线（合并模式）/ 可点块（细分模式）
     function renderGmEditor() {
         const grid = document.getElementById("gm-editor-grid");
         grid.innerHTML = "";
-        const blocks = gmEditorBlocks();
-        const cellBlock = [];   // [r][c] = 块索引
-        blocks.forEach((b, i) => {
-            for (let r = b.r0; r < b.r0 + b.rh; r++) for (let c = b.c0; c < b.c0 + b.cw; c++) (cellBlock[r] = cellBlock[r] || [])[c] = i;
-        });
-        // 块编号展示 + 块轮廓（首格画框）
-        for (let r = 0; r < gmERows; r++) {
-            for (let c = 0; c < gmECols; c++) {
-                const bi = cellBlock[r] && cellBlock[r][c];
-                const B = blocks[bi];
-                const el = document.createElement("div");
-                el.className = "gm-cell" + (B && B.cw * B.rh > 1 ? " merged" : "");
-                el.style.left = (c / gmECols * 100) + "%";
-                el.style.top = (r / gmERows * 100) + "%";
-                el.style.width = (100 / gmECols) + "%";
-                el.style.height = (100 / gmERows) + "%";
-                if (B && B.cw * B.rh > 1) el.textContent = "";   // 合并块不放字
-                else el.textContent = "";
-                grid.appendChild(el);
-            }
-        }
-        // 块轮廓：给每块左上格画实线框，按块尺寸外扩
-        blocks.forEach(B => {
+        grid.classList.toggle("split-mode", gmTool === "split");
+        const leaves = gmEditorLeaves();
+        // 叶子块轮廓
+        leaves.forEach(B => {
             const out = document.createElement("div");
             out.className = "gm-block-outline";
             out.style.left = (B.c0 / gmECols * 100) + "%";
@@ -2918,44 +2928,96 @@ document.addEventListener("DOMContentLoaded", () => {
             out.style.width = (B.cw / gmECols * 100) + "%";
             out.style.height = (B.rh / gmERows * 100) + "%";
             grid.appendChild(out);
+            // 细分模式：点块弹细分菜单
+            if (gmTool === "split") {
+                const hit = document.createElement("div");
+                hit.className = "gm-block-hit";
+                hit.style.left = out.style.left;
+                hit.style.top = out.style.top;
+                hit.style.width = out.style.width;
+                hit.style.height = out.style.height;
+                hit.addEventListener("click", (e) => {
+                    e.stopPropagation();
+                    showGmSplitPop(e, B);
+                });
+                grid.appendChild(hit);
+            }
         });
-        // 可点边线：横边
-        for (let r = 0; r < gmERows - 1; r++) {
-            for (let c = 0; c < gmECols; c++) {
-                const e = document.createElement("div");
-                e.className = "gm-edge gm-edge-h" + (gmHEdges[r][c] ? " open" : " closed");
-                e.style.left = (c / gmECols * 100) + "%";
-                e.style.top = ((r + 1) / gmERows * 100) + "%";
-                e.style.width = (100 / gmECols) + "%";
-                e.addEventListener("click", () => {
-                    gmUndoStack.push(gmSnapshot());
-                    gmHEdges[r][c] = !gmHEdges[r][c];
-                    renderGmEditor();
-                    refreshGmBadge();
-                    scheduleGmPreview();
-                });
-                grid.appendChild(e);
+        // 可点边线：横边（仅合并模式）
+        if (gmTool === "merge") {
+            for (let r = 0; r < gmERows - 1; r++) {
+                for (let c = 0; c < gmECols; c++) {
+                    const e = document.createElement("div");
+                    e.className = "gm-edge gm-edge-h" + (gmHEdges[r][c] ? " open" : " closed");
+                    e.style.left = (c / gmECols * 100) + "%";
+                    e.style.top = ((r + 1) / gmERows * 100) + "%";
+                    e.style.width = (100 / gmECols) + "%";
+                    e.addEventListener("click", () => {
+                        gmUndoStack.push(gmSnapshot());
+                        gmHEdges[r][c] = !gmHEdges[r][c];
+                        renderGmEditor();
+                        refreshGmBadge();
+                        scheduleGmPreview();
+                    });
+                    grid.appendChild(e);
+                }
+            }
+            // 可点边线：竖边
+            for (let r = 0; r < gmERows; r++) {
+                for (let c = 0; c < gmECols - 1; c++) {
+                    const e = document.createElement("div");
+                    e.className = "gm-edge gm-edge-v" + (gmVEdges[r][c] ? " open" : " closed");
+                    e.style.left = ((c + 1) / gmECols * 100) + "%";
+                    e.style.top = (r / gmERows * 100) + "%";
+                    e.style.height = (100 / gmERows) + "%";
+                    e.addEventListener("click", () => {
+                        gmUndoStack.push(gmSnapshot());
+                        gmVEdges[r][c] = !gmVEdges[r][c];
+                        renderGmEditor();
+                        refreshGmBadge();
+                        scheduleGmPreview();
+                    });
+                    grid.appendChild(e);
+                }
             }
         }
-        // 可点边线：竖边
-        for (let r = 0; r < gmERows; r++) {
-            for (let c = 0; c < gmECols - 1; c++) {
-                const e = document.createElement("div");
-                e.className = "gm-edge gm-edge-v" + (gmVEdges[r][c] ? " open" : " closed");
-                e.style.left = ((c + 1) / gmECols * 100) + "%";
-                e.style.top = (r / gmERows * 100) + "%";
-                e.style.height = (100 / gmERows) + "%";
-                e.addEventListener("click", () => {
-                    gmUndoStack.push(gmSnapshot());
-                    gmVEdges[r][c] = !gmVEdges[r][c];
-                    renderGmEditor();
-                    refreshGmBadge();
-                    scheduleGmPreview();
-                });
-                grid.appendChild(e);
-            }
-        }
+        hideGmSplitPop();
     }
+
+    // 细分弹出菜单：定位到点击的叶子块下方
+    function showGmSplitPop(e, leaf) {
+        const pop = document.getElementById("gm-split-pop");
+        const grid = document.getElementById("gm-editor-grid");
+        const gRect = grid.getBoundingClientRect();
+        pop.hidden = false;
+        pop.style.left = Math.min(e.clientX - gRect.left, gRect.width - 240) + "px";
+        pop.style.top = (e.clientY - gRect.top + 10) + "px";
+        // 重建按钮（清除上一轮残留的 once handler，避免点错块）
+        pop.innerHTML = "";
+        [["h2", "横切 2"], ["h3", "横切 3"], ["v2", "竖切 2"], ["v3", "竖切 3"]].forEach(([spec, label]) => {
+            const btn = document.createElement("button");
+            btn.className = "gm-split-btn";
+            btn.textContent = label;
+            btn.addEventListener("click", (ev) => {
+                ev.stopPropagation();
+                gmUndoStack.push(gmSnapshot());
+                // 直接记录点中的叶子矩形（格子单位），应用时递归定位——支持嵌套细分
+                gmSplits.push({ x: leaf.c0, y: leaf.r0, w: leaf.cw, h: leaf.rh, dir: spec[0], n: parseInt(spec[1], 10) });
+                hideGmSplitPop();
+                renderGmEditor();
+                refreshGmBadge();
+                scheduleGmPreview();
+            });
+            pop.appendChild(btn);
+        });
+    }
+    function hideGmSplitPop() {
+        document.getElementById("gm-split-pop").hidden = true;
+    }
+    document.addEventListener("click", (e) => {
+        const pop = document.getElementById("gm-split-pop");
+        if (!pop.hidden && !pop.contains(e.target)) hideGmSplitPop();
+    });
 
     // 等分切换 + 方向切换 + 撤回 + 重置
     function gmApplyDivide() {
@@ -2984,11 +3046,23 @@ document.addEventListener("DOMContentLoaded", () => {
         gmECols = snap.cols; gmERows = snap.rows;
         gmHEdges = snap.h;
         gmVEdges = snap.v;
+        gmSplits = snap.splits || [];
         renderGmEditor();
         refreshGmBadge();
         scheduleGmPreview();
     });
     document.getElementById("btn-gm-reset").addEventListener("click", () => gmApplyDivide());
+    // 编辑模式切换：合并（点边线）/ 细分（点块弹菜单）
+    document.querySelectorAll("#gm-tool-group .segmented-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            document.querySelectorAll("#gm-tool-group .segmented-btn").forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+            gmTool = btn.getAttribute("data-tool");
+            document.getElementById("txt-gm-mode-hint").textContent =
+                gmTool === "merge" ? "点格间线条合并/拆分" : "点击块选择横切/竖切份数";
+            renderGmEditor();
+        });
+    });
     gmApplyDivide();   // 默认 6 份横切（3x2）
     
     function renderGmList() {
@@ -3058,8 +3132,8 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         badge.style.display = "block";
         badge.style.color = "";
-        const blocks = gmEditorBlocks();
-        const cells = blocks.length;
+        const leaves = gmEditorLeaves();
+        const cells = leaves.length;
         const layoutText = `${cells} 图拼版`;
         badge.textContent = gmFiles.length <= cells
             ? `已选 ${gmFiles.length} 张 / ${cells} 格（${layoutText}），按列表顺序填入`
@@ -3160,7 +3234,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 gmPreviewCanvas.hidden = false;
                 document.getElementById("gm-empty-out").hidden = true;
                 document.getElementById("card-gm-result").style.display = "block";
-                const layoutText = `${gmEditorBlocks().length} 图拼版`;
+                const layoutText = `${gmEditorLeaves().length} 图拼版`;
                 document.getElementById("txt-gm-summary").textContent =
                     `${layoutText} | ${gmFit === "cover" ? "填满裁切" : "完整留白"} | 成品 ${cw}x${ch}`;
             } catch (err) { /* 预览失败静默 */ }

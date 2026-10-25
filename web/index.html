@@ -645,19 +645,27 @@
           </div>
 
           <div class="gm-editor-wrap" id="gm-editor-wrap">
+            <div class="gm-mode-row">
+              <div class="segmented merge-radius-mode" id="gm-tool-group" role="group" aria-label="编辑模式">
+                <button class="segmented-btn active" data-tool="merge">合并模式</button>
+                <button class="segmented-btn" data-tool="split">细分模式</button>
+              </div>
+              <span class="gm-mode-hint" id="txt-gm-mode-hint">点格间线条合并/拆分</span>
+            </div>
             <div id="gm-editor-grid" class="gm-editor-grid"></div>
-            <div class="gm-editor-tip">点击格间线条合并/拆分相邻格 · <button type="button" id="btn-gm-undo" class="gm-reset-btn">撤回合并</button> · <button type="button" id="btn-gm-reset" class="gm-reset-btn">重置布局</button></div>
+            <div id="gm-split-pop" class="gm-split-pop" hidden></div>
+            <div class="gm-editor-tip"><button type="button" id="btn-gm-undo" class="gm-reset-btn">撤回</button> · <button type="button" id="btn-gm-reset" class="gm-reset-btn">重置布局</button></div>
           </div>
 
           <div class="ew-slider-row">
             <span class="ew-slider-label">间距</span>
-            <input type="range" id="gm-slider-gap" class="ew-slider" min="0" max="100" step="1" value="8">
-            <span class="ew-slider-val" id="gm-val-gap">8px</span>
+            <input type="range" id="gm-slider-gap" class="ew-slider" min="0" max="100" step="1" value="0">
+            <span class="ew-slider-val" id="gm-val-gap">0px</span>
           </div>
           <div class="ew-slider-row">
             <span class="ew-slider-label">外边框</span>
-            <input type="range" id="gm-slider-margin" class="ew-slider" min="0" max="100" step="1" value="8">
-            <span class="ew-slider-val" id="gm-val-margin">8px</span>
+            <input type="range" id="gm-slider-margin" class="ew-slider" min="0" max="100" step="1" value="0">
+            <span class="ew-slider-val" id="gm-val-margin">0px</span>
           </div>
           <div class="ew-slider-row">
             <span class="ew-slider-label">圆角</span>
