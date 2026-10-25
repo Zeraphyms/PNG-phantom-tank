@@ -27,12 +27,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // 1. Tab 切换
     // 主 Tab 与「更多功能」子功能的页面 id → 名称/路径映射
+    // emoji 单独存：功能栏里 emoji 绝对定位在文字左侧，不参与居中计算
     const FEATURE_PAGES = {
-        "page-split":     { name: "✂️ 拆解动图", path: "/split" },
-        "page-chaos":     { name: "🌀 图片混淆", path: "/chaos" },
-        "page-clean":     { name: "🧹 清除信息", path: "/clean" },
-        "page-weathering":{ name: "🏺 电子包浆", path: "/weathering" },
-        "page-merge":     { name: "🧩 图片处理", path: "/processing" }
+        "page-split":     { emoji: "✂️", name: "拆解动图", path: "/split" },
+        "page-chaos":     { emoji: "🌀", name: "图片混淆", path: "/chaos" },
+        "page-clean":     { emoji: "🧹", name: "清除信息", path: "/clean" },
+        "page-weathering":{ emoji: "🏺", name: "电子包浆", path: "/weathering" },
+        "page-merge":     { emoji: "🧩", name: "图片处理", path: "/processing" }
     };
 
     function switchPage(targetId, skipUrlSync = false) {
@@ -45,9 +46,16 @@ document.addEventListener("DOMContentLoaded", () => {
         const isFeature = !!FEATURE_PAGES[targetId];
         document.getElementById("main-tab-bar").hidden = isFeature;
         document.getElementById("feature-tab-bar").hidden = !isFeature;
+        // 图片处理页的功能名换成子功能切换；其他功能页显示功能名
+        const isMerge = targetId === "page-merge";
+        document.getElementById("merge-sub-tabs").hidden = !isMerge;
+        document.getElementById("txt-feature-name").hidden = isMerge;
         if (isFeature) {
-            document.getElementById("txt-feature-name").textContent = FEATURE_PAGES[targetId].name;
+            document.getElementById("txt-feature-emoji").textContent = FEATURE_PAGES[targetId].emoji;
+            document.getElementById("txt-feature-text").textContent = FEATURE_PAGES[targetId].name;
         }
+        // 「回到主页」按钮在顶栏（夜间模式左边），仅功能页显示
+        document.getElementById("btn-header-home").hidden = !isFeature;
 
         tabBtns.forEach(b => {
             b.classList.toggle("active", b.getAttribute("data-tab") === targetId);
@@ -80,8 +88,8 @@ document.addEventListener("DOMContentLoaded", () => {
         switchPage(pid, true);
     });
 
-    // 功能模式「回到主页」：回默认页
-    document.getElementById("btn-feature-home").addEventListener("click", () => switchPage("page-disguise"));
+    // 顶栏「回到主页」（夜间模式左边，功能页显示）：回默认页
+    document.getElementById("btn-header-home").addEventListener("click", () => switchPage("page-disguise"));
 
     // 1.0.1 直达路径：启动时按 URL 路径进入对应功能（/split /chaos /clean /weathering /processing）
     // 站点无 404.html，Cloudflare Pages 按 SPA 兜底把所有未知路径 200 返回 index.html，
@@ -2747,6 +2755,1042 @@ document.addEventListener("DOMContentLoaded", () => {
         } catch (err) {
             alert("拼接失败: " + err.message);
         }
+    });
+
+    // 8.3.0a 网格拼接：布局预设 + 间距/外边框/圆角/背景 + 裁切方式 + 输出宽度（实时预览）
+    const boxGm = document.getElementById("box-gm-upload");
+    const inputGm = document.getElementById("input-gm-image");
+    let gmFiles = [];            // [{ file, img, w, h }] 按填入顺序
+    let gmBg = "#FFFFFF";
+    let gmFit = "cover";         // cover=填满裁切 contain=完整留白
+    let gmPreviewCanvas = document.getElementById("canvas-gm-out");
+
+    boxGm.addEventListener("click", () => inputGm.click());
+    enableDropUpload(boxGm, inputGm);
+
+    document.querySelectorAll("#gm-bg-group .merge-bg-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            document.querySelectorAll("#gm-bg-group .merge-bg-btn").forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+            gmBg = btn.getAttribute("data-bg");
+            scheduleGmPreview();
+        });
+    });
+    document.querySelectorAll("#gm-fit-group .segmented-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            document.querySelectorAll("#gm-fit-group .segmented-btn").forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+            gmFit = btn.getAttribute("data-fit");
+            scheduleGmPreview();
+        });
+    });
+
+    const gmSliders = {
+        gap:    document.getElementById("gm-slider-gap"),
+        margin: document.getElementById("gm-slider-margin"),
+        radius: document.getElementById("gm-slider-radius")
+    };
+    function refreshGmVals() {
+        document.getElementById("gm-val-gap").textContent = gmSliders.gap.value + "px";
+        document.getElementById("gm-val-margin").textContent = gmSliders.margin.value + "px";
+        document.getElementById("gm-val-radius").textContent = gmSliders.radius.value + "px";
+    }
+    Object.values(gmSliders).forEach(s => {
+        s.addEventListener("input", () => {
+            refreshGmVals();
+            scheduleGmPreview();
+        });
+    });
+    document.getElementById("gm-out-width").addEventListener("input", () => scheduleGmPreview());
+    refreshGmVals();
+
+    // 布局预设：按张数分组（2~9），每个布局 = 归一化矩形数组 [x,y,w,h]（0~1），行优先对应图片顺序
+    // 网格编辑器：等分（2/4/6竖/6横/8/9）+ 点击格间边线合并相邻格
+    // 模型：只存"内部边是否打开"。块 = 被打开的边围出的连通区域（天然防 L 形）。
+    // hEdges[r][c] = 行 r 与 r+1 之间、列 c 处的横边（r: 0..rows-2）
+    // vEdges[r][c] = 列 c 与 c+1 之间、行 r 处的竖边（c: 0..cols-2）
+    let gmECols = 3, gmERows = 2;
+    let gmHEdges = [], gmVEdges = [];   // true = 边打开（分割）
+    let gmOrient = "h";                 // h=横切（宽>高，如 3x2），v=竖切（高>宽，如 2x3）
+    let gmDivide = "6";                 // 当前等分份数
+    let gmUndoStack = [];               // 边状态快照栈（每次合并/拆分前压栈）
+
+    // 份数 → 行列（按方向取窄边/长边；正方形份数不受方向影响）
+    function gmDivideDims(divide, orient) {
+        const map = {
+            "2":  [1, 2],
+            "4":  [2, 2],
+            "6":  [3, 2],
+            "8":  [4, 2],
+            "9":  [3, 3],
+            "16": [4, 4]
+        };
+        let [a, b] = map[divide] || map["6"];
+        // a=列 b=行；横切 = 列多行少（宽扁）；竖切 = 行多列少（高瘦）
+        if (a !== b) {
+            if (orient === "h") return { cols: Math.max(a, b), rows: Math.min(a, b) };
+            return { cols: Math.min(a, b), rows: Math.max(a, b) };
+        }
+        return { cols: a, rows: b };
+    }
+
+    function gmSnapshot() {
+        return {
+            cols: gmECols, rows: gmERows,
+            h: gmHEdges.map(r => r.slice()),
+            v: gmVEdges.map(r => r.slice())
+        };
+    }
+
+    function gmEditorReset(cols, rows) {
+        gmECols = cols; gmERows = rows;
+        gmHEdges = Array.from({ length: rows - 1 }, () => Array(cols).fill(true));
+        gmVEdges = Array.from({ length: rows }, () => Array(cols - 1).fill(true));
+        gmUndoStack = [];
+        renderGmEditor();
+        refreshGmBadge();
+        scheduleGmPreview();
+    }
+
+    // 由边状态推导矩形块列表（连通区域；连通块必为矩形——由边模型保证）
+    function gmEditorBlocks() {
+        const visited = Array.from({ length: gmERows }, () => Array(gmECols).fill(false));
+        const rects = [];
+        for (let r = 0; r < gmERows; r++) {
+            for (let c = 0; c < gmECols; c++) {
+                if (visited[r][c]) continue;
+                // BFS 求连通块
+                let c0 = c, r0 = r, c1 = c, r1 = r;
+                const q = [[r, c]];
+                visited[r][c] = true;
+                while (q.length) {
+                    const [cr, cc] = q.pop();
+                    c0 = Math.min(c0, cc); r0 = Math.min(r0, cr);
+                    c1 = Math.max(c1, cc); r1 = Math.max(r1, cr);
+                    // 四方向：边关闭才连通
+                    if (cr > 0 && !gmHEdges[cr - 1][cc] && !visited[cr - 1][cc]) { visited[cr - 1][cc] = true; q.push([cr - 1, cc]); }
+                    if (cr < gmERows - 1 && !gmHEdges[cr][cc] && !visited[cr + 1][cc]) { visited[cr + 1][cc] = true; q.push([cr + 1, cc]); }
+                    if (cc > 0 && !gmVEdges[cr][cc - 1] && !visited[cr][cc - 1]) { visited[cr][cc - 1] = true; q.push([cr, cc - 1]); }
+                    if (cc < gmECols - 1 && !gmVEdges[cr][cc] && !visited[cr][cc + 1]) { visited[cr][cc + 1] = true; q.push([cr, cc + 1]); }
+                }
+                rects.push({ c0, r0, cw: c1 - c0 + 1, rh: r1 - r0 + 1 });
+            }
+        }
+        return rects;
+    }
+
+    // 块列表 → 归一化矩形（图片填充顺序用）
+    function gmEditorLayout() {
+        return gmEditorBlocks().map(b => [b.c0 / gmECols, b.r0 / gmERows, b.cw / gmECols, b.rh / gmERows]);
+    }
+
+    // 渲染编辑器：格子 + 可点边线
+    function renderGmEditor() {
+        const grid = document.getElementById("gm-editor-grid");
+        grid.innerHTML = "";
+        const blocks = gmEditorBlocks();
+        const cellBlock = [];   // [r][c] = 块索引
+        blocks.forEach((b, i) => {
+            for (let r = b.r0; r < b.r0 + b.rh; r++) for (let c = b.c0; c < b.c0 + b.cw; c++) (cellBlock[r] = cellBlock[r] || [])[c] = i;
+        });
+        // 块编号展示 + 块轮廓（首格画框）
+        for (let r = 0; r < gmERows; r++) {
+            for (let c = 0; c < gmECols; c++) {
+                const bi = cellBlock[r] && cellBlock[r][c];
+                const B = blocks[bi];
+                const el = document.createElement("div");
+                el.className = "gm-cell" + (B && B.cw * B.rh > 1 ? " merged" : "");
+                el.style.left = (c / gmECols * 100) + "%";
+                el.style.top = (r / gmERows * 100) + "%";
+                el.style.width = (100 / gmECols) + "%";
+                el.style.height = (100 / gmERows) + "%";
+                if (B && B.cw * B.rh > 1) el.textContent = "";   // 合并块不放字
+                else el.textContent = "";
+                grid.appendChild(el);
+            }
+        }
+        // 块轮廓：给每块左上格画实线框，按块尺寸外扩
+        blocks.forEach(B => {
+            const out = document.createElement("div");
+            out.className = "gm-block-outline";
+            out.style.left = (B.c0 / gmECols * 100) + "%";
+            out.style.top = (B.r0 / gmERows * 100) + "%";
+            out.style.width = (B.cw / gmECols * 100) + "%";
+            out.style.height = (B.rh / gmERows * 100) + "%";
+            grid.appendChild(out);
+        });
+        // 可点边线：横边
+        for (let r = 0; r < gmERows - 1; r++) {
+            for (let c = 0; c < gmECols; c++) {
+                const e = document.createElement("div");
+                e.className = "gm-edge gm-edge-h" + (gmHEdges[r][c] ? " open" : " closed");
+                e.style.left = (c / gmECols * 100) + "%";
+                e.style.top = ((r + 1) / gmERows * 100) + "%";
+                e.style.width = (100 / gmECols) + "%";
+                e.addEventListener("click", () => {
+                    gmUndoStack.push(gmSnapshot());
+                    gmHEdges[r][c] = !gmHEdges[r][c];
+                    renderGmEditor();
+                    refreshGmBadge();
+                    scheduleGmPreview();
+                });
+                grid.appendChild(e);
+            }
+        }
+        // 可点边线：竖边
+        for (let r = 0; r < gmERows; r++) {
+            for (let c = 0; c < gmECols - 1; c++) {
+                const e = document.createElement("div");
+                e.className = "gm-edge gm-edge-v" + (gmVEdges[r][c] ? " open" : " closed");
+                e.style.left = ((c + 1) / gmECols * 100) + "%";
+                e.style.top = (r / gmERows * 100) + "%";
+                e.style.height = (100 / gmERows) + "%";
+                e.addEventListener("click", () => {
+                    gmUndoStack.push(gmSnapshot());
+                    gmVEdges[r][c] = !gmVEdges[r][c];
+                    renderGmEditor();
+                    refreshGmBadge();
+                    scheduleGmPreview();
+                });
+                grid.appendChild(e);
+            }
+        }
+    }
+
+    // 等分切换 + 方向切换 + 撤回 + 重置
+    function gmApplyDivide() {
+        const d = gmDivideDims(gmDivide, gmOrient);
+        gmEditorReset(d.cols, d.rows);
+    }
+    document.querySelectorAll("#gm-divide-group .segmented-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            document.querySelectorAll("#gm-divide-group .segmented-btn").forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+            gmDivide = btn.getAttribute("data-divide");
+            gmApplyDivide();
+        });
+    });
+    document.querySelectorAll("#gm-orient-group .segmented-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            document.querySelectorAll("#gm-orient-group .segmented-btn").forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+            gmOrient = btn.getAttribute("data-orient");
+            gmApplyDivide();
+        });
+    });
+    document.getElementById("btn-gm-undo").addEventListener("click", () => {
+        const snap = gmUndoStack.pop();
+        if (!snap) return;
+        gmECols = snap.cols; gmERows = snap.rows;
+        gmHEdges = snap.h;
+        gmVEdges = snap.v;
+        renderGmEditor();
+        refreshGmBadge();
+        scheduleGmPreview();
+    });
+    document.getElementById("btn-gm-reset").addEventListener("click", () => gmApplyDivide());
+    gmApplyDivide();   // 默认 6 份横切（3x2）
+    
+    function renderGmList() {
+        const listEl = document.getElementById("gm-file-list");
+        listEl.innerHTML = "";
+        let dragIdx = -1;
+        gmFiles.forEach((item, i) => {
+            const row = document.createElement("div");
+            row.className = "merge-file-item";
+            row.draggable = true;
+            row.addEventListener("dragstart", () => { dragIdx = i; row.classList.add("dragging"); });
+            row.addEventListener("dragend", () => { row.classList.remove("dragging"); listEl.querySelectorAll(".merge-file-item").forEach(r => r.classList.remove("drag-over-top", "drag-over-bottom")); });
+            row.addEventListener("dragover", (e) => {
+                e.preventDefault();
+                const rect = row.getBoundingClientRect();
+                const before = (e.clientY - rect.top) < rect.height / 2;
+                row.classList.toggle("drag-over-top", before);
+                row.classList.toggle("drag-over-bottom", !before);
+            });
+            row.addEventListener("dragleave", () => row.classList.remove("drag-over-top", "drag-over-bottom"));
+            row.addEventListener("drop", (e) => {
+                e.preventDefault();
+                const rect = row.getBoundingClientRect();
+                const before = (e.clientY - rect.top) < rect.height / 2;
+                let dst = before ? i : i + 1;
+                if (dragIdx < 0 || dragIdx === dst || dragIdx === dst - 1) return;
+                const [moved] = gmFiles.splice(dragIdx, 1);
+                if (dst > dragIdx) dst--;
+                gmFiles.splice(dst, 0, moved);
+                renderGmList();
+                scheduleGmPreview();
+            });
+            const order = document.createElement("span");
+            order.className = "merge-file-order";
+            order.textContent = String(i + 1);
+            const name = document.createElement("span");
+            name.className = "merge-file-name";
+            name.textContent = `${item.file.name} (${item.w}x${item.h})`;
+            const del = document.createElement("button");
+            del.className = "merge-file-del";
+            del.textContent = "✕";
+            del.title = "移除";
+            del.addEventListener("click", () => {
+                gmFiles.splice(i, 1);
+                renderGmList();
+                refreshGmBadge();
+                scheduleGmPreview();
+            });
+            row.appendChild(order);
+            row.appendChild(name);
+            row.appendChild(del);
+            listEl.appendChild(row);
+        });
+    }
+
+    function refreshGmBadge() {
+        const badge = document.getElementById("badge-gm-info");
+        const preview = document.getElementById("img-gm-preview");
+        if (gmFiles.length === 0) {
+            badge.style.display = "none";
+            preview.removeAttribute("src");
+            preview.style.display = "none";
+            boxGm.querySelector(".upload-icon").style.display = "";
+            boxGm.querySelector(".upload-text").style.display = "";
+            boxGm.querySelector(".upload-hint").style.display = "";
+            return;
+        }
+        badge.style.display = "block";
+        badge.style.color = "";
+        const blocks = gmEditorBlocks();
+        const cells = blocks.length;
+        const layoutText = `${cells} 图拼版`;
+        badge.textContent = gmFiles.length <= cells
+            ? `已选 ${gmFiles.length} 张 / ${cells} 格（${layoutText}），按列表顺序填入`
+            : `已选 ${gmFiles.length} 张，超出 ${cells} 格，多出的不会显示`;
+        preview.src = gmFiles[0].img.src;
+        preview.style.display = "block";
+        boxGm.querySelector(".upload-icon").style.display = "none";
+        boxGm.querySelector(".upload-text").style.display = "none";
+        boxGm.querySelector(".upload-hint").style.display = "none";
+    }
+
+    inputGm.addEventListener("change", async (e) => {
+        const files = e.target.files ? Array.from(e.target.files) : [];
+        if (files.length === 0) return;
+        inputGm.value = "";
+        for (const file of files) {
+            try {
+                const img = await loadImage(URL.createObjectURL(file));
+                const w = img.naturalWidth || img.width;
+                const h = img.naturalHeight || img.height;
+                if (!w || !h) continue;
+                gmFiles.push({ file, img, w, h });
+            } catch (err) { /* 单张失败跳过 */ }
+        }
+        renderGmList();
+        refreshGmBadge();
+        scheduleGmPreview();
+    });
+
+    function buildGmCanvas() {
+        const gap = parseInt(gmSliders.gap.value, 10);
+        const margin = parseInt(gmSliders.margin.value, 10);
+        const radius = parseInt(gmSliders.radius.value, 10);
+        const first = gmFiles[0];
+
+        // 布局来自网格编辑器（等分 + 边合并）
+        const regions = gmEditorLayout();
+        const list = gmFiles.slice(0, regions.length);
+
+        const outW = parseInt(document.getElementById("gm-out-width").value, 10) || 0;
+        const cw = outW > 0 ? outW : 960;
+        const ch = Math.max(1, Math.round(cw * (first.h / first.w)));
+
+        const canvas = document.createElement("canvas");
+        canvas.width = cw;
+        canvas.height = ch;
+        const ctx = canvas.getContext("2d");
+        if (gmBg !== "transparent") {
+            ctx.fillStyle = gmBg;
+            ctx.fillRect(0, 0, cw, ch);
+        }
+
+        const inner = { x: margin, y: margin, w: cw - margin * 2, h: ch - margin * 2 };
+        list.forEach((item, idx) => {
+            const [nx, ny, nw, nh] = regions[idx];
+            const cx = inner.x + nx * inner.w + gap / 2;
+            const cy = inner.y + ny * inner.h + gap / 2;
+            const cwCell = Math.max(1, nw * inner.w - gap);
+            const chCell = Math.max(1, nh * inner.h - gap);
+            const r = Math.min(radius, cwCell / 2, chCell / 2);
+            ctx.save();
+            ctx.beginPath();
+            if (r > 0 && ctx.roundRect) ctx.roundRect(cx, cy, cwCell, chCell, r);
+            else ctx.rect(cx, cy, cwCell, chCell);
+            ctx.clip();
+            if (gmFit === "cover") {
+                const k = Math.max(cwCell / item.w, chCell / item.h);
+                const dw = item.w * k, dh = item.h * k;
+                ctx.drawImage(item.img, cx + (cwCell - dw) / 2, cy + (chCell - dh) / 2, dw, dh);
+            } else {
+                const k = Math.min(cwCell / item.w, chCell / item.h);
+                const dw = item.w * k, dh = item.h * k;
+                ctx.drawImage(item.img, cx + (cwCell - dw) / 2, cy + (chCell - dh) / 2, dw, dh);
+            }
+            ctx.restore();
+        });
+        return { canvas, cw, ch };
+    }
+
+    let gmDirty = false, gmRaf = 0;
+    function scheduleGmPreview() {
+        if (gmFiles.length === 0) {
+            gmPreviewCanvas.hidden = true;
+            document.getElementById("gm-empty-out").hidden = false;
+            document.getElementById("card-gm-result").style.display = "none";
+            return;
+        }
+        gmDirty = true;
+        if (!gmRaf) gmRaf = requestAnimationFrame(() => {
+            gmRaf = 0;
+            if (!gmDirty) return;
+            gmDirty = false;
+            try {
+                const { canvas, cw, ch } = buildGmCanvas();
+                gmPreviewCanvas.width = cw;
+                gmPreviewCanvas.height = ch;
+                gmPreviewCanvas.getContext("2d").drawImage(canvas, 0, 0);
+                gmPreviewCanvas.hidden = false;
+                document.getElementById("gm-empty-out").hidden = true;
+                document.getElementById("card-gm-result").style.display = "block";
+                const layoutText = `${gmEditorBlocks().length} 图拼版`;
+                document.getElementById("txt-gm-summary").textContent =
+                    `${layoutText} | ${gmFit === "cover" ? "填满裁切" : "完整留白"} | 成品 ${cw}x${ch}`;
+            } catch (err) { /* 预览失败静默 */ }
+        });
+    }
+
+    document.getElementById("btn-gm-download").addEventListener("click", () => {
+        if (gmFiles.length === 0) { alert("请先选择图片"); return; }
+        try {
+            const { canvas } = buildGmCanvas();
+            canvas.toBlob(blob => {
+                if (!blob) { alert("导出失败"); return; }
+                const a = document.createElement("a");
+                const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14);
+                a.href = URL.createObjectURL(blob);
+                a.download = `gridmerge_${stamp}.png`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+            }, "image/png");
+        } catch (err) {
+            alert("网格拼接失败: " + err.message);
+        }
+    });
+
+    // 8.3.1 图片处理子面板切换：拼接 / 网格拼接 / 九宫格切图 / 覆盖图片
+    const mergeSubPanels = {
+        merge: document.getElementById("panel-merge-merge"),
+        gridmerge: document.getElementById("panel-merge-gridmerge"),
+        grid: document.getElementById("panel-merge-grid"),
+        overlay: document.getElementById("panel-merge-overlay")
+    };
+    let mergeSubMode = "merge";
+    document.querySelectorAll("#merge-sub-tabs .segmented-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            document.querySelectorAll("#merge-sub-tabs .segmented-btn").forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+            mergeSubMode = btn.getAttribute("data-sub");
+            Object.entries(mergeSubPanels).forEach(([k, p]) => { p.hidden = k !== mergeSubMode; });
+        });
+    });
+
+    // 8.3.2 九宫格切图：3x3 九等分，可选先裁方正方形
+    const boxGrid = document.getElementById("box-grid-upload");
+    const inputGrid = document.getElementById("input-grid-image");
+    let gridSourceCanvas = null;
+    let gridMode = "square";
+    let gridResults = [];
+
+    boxGrid.addEventListener("click", () => inputGrid.click());
+    enableDropUpload(boxGrid, inputGrid);
+
+    document.querySelectorAll("#grid-mode-group .segmented-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            document.querySelectorAll("#grid-mode-group .segmented-btn").forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+            gridMode = btn.getAttribute("data-grid-mode");
+        });
+    });
+
+    inputGrid.addEventListener("change", async (e) => {
+        if (!e.target.files || e.target.files.length === 0) return;
+        const file = e.target.files[0];
+        const preview = document.getElementById("img-grid-preview");
+        try {
+            const img = await loadImage(URL.createObjectURL(file));
+            const w = img.naturalWidth || img.width;
+            const h = img.naturalHeight || img.height;
+            if (!w || !h) throw new Error("图片尺寸无效");
+            gridSourceCanvas = document.createElement("canvas");
+            gridSourceCanvas.width = w;
+            gridSourceCanvas.height = h;
+            gridSourceCanvas.getContext("2d", { willReadFrequently: true }).drawImage(img, 0, 0, w, h);
+            preview.src = gridSourceCanvas.toDataURL("image/jpeg", 0.95);
+            preview.style.display = "block";
+            boxGrid.querySelector(".upload-icon").style.display = "none";
+            boxGrid.querySelector(".upload-text").style.display = "none";
+            boxGrid.querySelector(".upload-hint").style.display = "none";
+            clearGridResults();
+            const badge = document.getElementById("badge-grid-info");
+            badge.style.display = "block";
+            badge.style.color = "";
+            badge.textContent = `已选: ${file.name} (${w}x${h})`;
+        } catch (err) {
+            alert("图片加载失败: " + err.message);
+        }
+    });
+
+    function clearGridResults() {
+        gridResults.forEach(r => { if (r.url) URL.revokeObjectURL(r.url); });
+        gridResults = [];
+        document.getElementById("grid-frame-list").innerHTML = "";
+        document.getElementById("card-grid-result").style.display = "none";
+        document.getElementById("txt-grid-summary").textContent = "";
+    }
+
+    function gridSourceRegion() {
+        const w = gridSourceCanvas.width, h = gridSourceCanvas.height;
+        if (gridMode !== "square") return { sx: 0, sy: 0, sw: w, sh: h };
+        const side = Math.min(w, h);
+        return { sx: Math.floor((w - side) / 2), sy: Math.floor((h - side) / 2), sw: side, sh: side };
+    }
+
+    document.getElementById("btn-grid-run").addEventListener("click", () => {
+        if (!gridSourceCanvas) { alert("请先选择一张图片"); return; }
+        clearGridResults();
+        const { sx, sy, sw, sh } = gridSourceRegion();
+        const cw = Math.floor(sw / 3), ch = Math.floor(sh / 3);
+        let done = 0;
+        const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14);
+        for (let r = 0; r < 3; r++) {
+            for (let c = 0; c < 3; c++) {
+                const piece = document.createElement("canvas");
+                piece.width = cw;
+                piece.height = ch;
+                piece.getContext("2d").drawImage(gridSourceCanvas, sx + c * cw, sy + r * ch, cw, ch, 0, 0, cw, ch);
+                piece.toBlob(blob => {
+                    const filename = `${r * 3 + c + 1}_grid_${stamp}.png`;
+                    gridResults.push({ blob, url: URL.createObjectURL(blob), filename });
+                    done++;
+                    if (done === 9) finishGrid();
+                }, "image/png");
+            }
+        }
+    });
+
+    function finishGrid() {
+        const list = document.getElementById("grid-frame-list");
+        list.innerHTML = "";
+        gridResults
+            .slice()
+            .sort((a, b) => parseInt(a.filename) - parseInt(b.filename))
+            .forEach((item) => {
+                const el = document.createElement("div");
+                el.className = "split-frame-item";
+                el.innerHTML = `<img src="${item.url}" alt="grid" class="zoomable"><div class="split-frame-label">${parseInt(item.filename)}</div>`;
+                el.querySelector("img").addEventListener("click", () => {
+                    const arr = gridResults
+                        .slice()
+                        .sort((a, b) => parseInt(a.filename) - parseInt(b.filename))
+                        .map(r => ({ url: r.url, label: r.filename }));
+                    const idx = arr.findIndex(it => it.url === item.url);
+                    showModal(arr, idx >= 0 ? idx : 0);
+                });
+                list.appendChild(el);
+            });
+        const w = gridSourceCanvas.width, h = gridSourceCanvas.height;
+        document.getElementById("txt-grid-result-title").textContent = "#️⃣ 切图完成 (共 9 张)";
+        document.getElementById("txt-grid-summary").textContent =
+            gridMode === "square"
+                ? `已居中裁成正方形后九等分 | 原图 ${w}x${h} → 每块 ${Math.floor(Math.min(w, h) / 3)}px`
+                : `原图完整九等分（不裁剪）| ${w}x${h} → 每块 ${Math.floor(w / 3)}x${Math.floor(h / 3)}`;
+        document.getElementById("card-grid-result").style.display = "block";
+    }
+
+    document.getElementById("btn-grid-download").addEventListener("click", () => {
+        if (gridResults.length === 0) return;
+        gridResults
+            .slice()
+            .sort((a, b) => parseInt(a.filename) - parseInt(b.filename))
+            .forEach((r, i) => {
+                setTimeout(() => {
+                    const a = document.createElement("a");
+                    a.href = r.url;
+                    a.download = r.filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                }, i * 200);
+            });
+    });
+
+    // 8.3.3 覆盖图片：底图 + 覆盖图/文字图层，画布拖拽/缩放/旋转
+    const boxOvBase = document.getElementById("box-ov-base-upload");
+    const inputOvBase = document.getElementById("input-ov-base");
+    const ovWrap = document.getElementById("ov-canvas-wrap");
+    const ovCanvas = document.getElementById("canvas-ov");
+    const ovCtx = ovCanvas.getContext("2d");
+    let ovBase = null;
+    let ovLayers = [];
+    let ovSelected = -1;
+    let ovViewScale = 1;
+
+    boxOvBase.addEventListener("click", () => inputOvBase.click());
+    enableDropUpload(boxOvBase, inputOvBase);
+
+    inputOvBase.addEventListener("change", async (e) => {
+        if (!e.target.files || e.target.files.length === 0) return;
+        const file = e.target.files[0];
+        try {
+            const img = await loadImage(URL.createObjectURL(file));
+            const w = img.naturalWidth || img.width;
+            const h = img.naturalHeight || img.height;
+            if (!w || !h) throw new Error("图片尺寸无效");
+            ovBase = { img, w, h };
+            ovLayers = [];
+            ovSelected = -1;
+            refreshOvBaseUI();
+            renderOv();
+        } catch (err) {
+            alert("底图加载失败: " + err.message);
+        }
+    });
+
+    function refreshOvBaseUI() {
+        const preview = document.getElementById("img-ov-base-preview");
+        const badge = document.getElementById("badge-ov-base-info");
+        if (!ovBase) {
+            document.getElementById("ov-hint").hidden = false;
+            badge.style.display = "none";
+            return;
+        }
+        document.getElementById("ov-hint").hidden = true;
+        badge.style.display = "block";
+        badge.style.color = "";
+        badge.textContent = `底图: ${ovBase.w}x${ovBase.h}`;
+        preview.src = ovBase.img.src;
+        preview.style.display = "block";
+        boxOvBase.querySelector(".upload-icon").style.display = "none";
+        boxOvBase.querySelector(".upload-text").style.display = "none";
+        boxOvBase.querySelector(".upload-hint").style.display = "none";
+    }
+
+    function renderOv() {
+        if (!ovBase) return;
+        ovCanvas.width = ovBase.w;
+        ovCanvas.height = ovBase.h;
+        const wrapW = ovWrap.clientWidth || 320;
+        ovViewScale = Math.min(1, wrapW / ovBase.w);
+        ovCanvas.style.width = (ovBase.w * ovViewScale) + "px";
+        ovCanvas.style.height = (ovBase.h * ovViewScale) + "px";
+        ovCtx.clearRect(0, 0, ovBase.w, ovBase.h);
+        ovCtx.drawImage(ovBase.img, 0, 0);
+        for (let i = 0; i < ovLayers.length; i++) {
+            drawOvLayer(ovLayers[i]);
+        }
+        renderOvHandles();
+        syncOvPropsPanel();
+    }
+
+    function drawOvLayer(L) {
+        ovCtx.save();
+        ovCtx.globalAlpha = L.opacity;
+        ovCtx.translate(L.x, L.y);
+        ovCtx.rotate(L.rot * Math.PI / 180);
+        if (L.kind === "image") {
+            const r = Math.min(L.radius, L.w / 2, L.h / 2);
+            ovCtx.beginPath();
+            if (r > 0 && ovCtx.roundRect) ovCtx.roundRect(-L.w / 2, -L.h / 2, L.w, L.h, r);
+            else ovCtx.rect(-L.w / 2, -L.h / 2, L.w, L.h);
+            ovCtx.clip();
+            ovCtx.drawImage(L.img, -L.w / 2, -L.h / 2, L.w, L.h);
+            if (L.borderWidth > 0) {
+                ovCtx.globalAlpha = 1;
+                ovCtx.lineWidth = L.borderWidth;
+                ovCtx.strokeStyle = L.borderColor;
+                ovCtx.beginPath();
+                if (r > 0 && ovCtx.roundRect) ovCtx.roundRect(-L.w / 2 + L.borderWidth / 2, -L.h / 2 + L.borderWidth / 2, L.w - L.borderWidth, L.h - L.borderWidth, Math.max(0, r - L.borderWidth / 2));
+                else ovCtx.rect(-L.w / 2 + L.borderWidth / 2, -L.h / 2 + L.borderWidth / 2, L.w - L.borderWidth, L.h - L.borderWidth);
+                ovCtx.stroke();
+            }
+        } else {
+            ovCtx.font = `${L.italic ? "italic " : ""}${L.weight || "bold"} ${L.fontSize}px sans-serif`;
+            ovCtx.textAlign = "center";
+            ovCtx.textBaseline = "middle";
+            if (L.stroke) {
+                ovCtx.lineWidth = Math.max(2, L.fontSize / 8);
+                ovCtx.strokeStyle = "rgba(0,0,0,0.85)";
+                ovCtx.strokeText(L.text, 0, 0);
+            }
+            ovCtx.fillStyle = L.textColor;
+            ovCtx.fillText(L.text, 0, 0);
+            const m = ovCtx.measureText(L.text || " ");
+            L.w = m.width;
+            L.h = L.fontSize * 1.2;
+        }
+        ovCtx.restore();
+    }
+
+    const ovHandles = [];
+    function renderOvHandles() {
+        ovHandles.forEach(h => h.remove());
+        ovHandles.length = 0;
+        if (ovSelected < 0 || !ovLayers[ovSelected]) return;
+        const L = ovLayers[ovSelected];
+        const rect = ovCanvas.getBoundingClientRect();
+        const wrapRect = ovWrap.getBoundingClientRect();
+        const ox = rect.left - wrapRect.left, oy = rect.top - wrapRect.top;
+        const corners = [
+            [-L.w / 2, -L.h / 2], [L.w / 2, -L.h / 2],
+            [L.w / 2, L.h / 2], [-L.w / 2, L.h / 2]
+        ].map(([px, py]) => {
+            const a = L.rot * Math.PI / 180;
+            const rx = px * Math.cos(a) - py * Math.sin(a);
+            const ry = px * Math.sin(a) + py * Math.cos(a);
+            return [ox + (L.x + rx) * ovViewScale, oy + (L.y + ry) * ovViewScale];
+        });
+        const box = document.createElement("div");
+        box.className = "ov-layer-box";
+        const xs = corners.map(c => c[0]), ys = corners.map(c => c[1]);
+        box.style.left = Math.min(...xs) + "px";
+        box.style.top = Math.min(...ys) + "px";
+        box.style.width = (Math.max(...xs) - Math.min(...xs)) + "px";
+        box.style.height = (Math.max(...ys) - Math.min(...ys)) + "px";
+        ovWrap.appendChild(box);
+        ovHandles.push(box);
+        const mkHandle = (x, y, cls) => {
+            const h = document.createElement("div");
+            h.className = "ov-handle " + cls;
+            h.style.left = x + "px";
+            h.style.top = y + "px";
+            ovWrap.appendChild(h);
+            ovHandles.push(h);
+            return h;
+        };
+        const topMid = [(corners[0][0] + corners[1][0]) / 2, (corners[0][1] + corners[1][1]) / 2];
+        mkHandle(topMid[0], topMid[1], "rot").addEventListener("pointerdown", e => startOvGesture(e, "rotate"));
+        mkHandle(corners[2][0], corners[2][1], "scale").addEventListener("pointerdown", e => startOvGesture(e, "scale"));
+        if (L.kind === "image" && document.getElementById("chk-ov-free-scale").checked) {
+            const rightMid = [(corners[1][0] + corners[2][0]) / 2, (corners[1][1] + corners[2][1]) / 2];
+            const bottomMid = [(corners[2][0] + corners[3][0]) / 2, (corners[2][1] + corners[3][1]) / 2];
+            mkHandle(rightMid[0], rightMid[1], "scale-x").addEventListener("pointerdown", e => startOvGesture(e, "scaleX"));
+            mkHandle(bottomMid[0], bottomMid[1], "scale-y").addEventListener("pointerdown", e => startOvGesture(e, "scaleY"));
+        }
+    }
+
+    function canvasToImage(e) {
+        const rect = ovCanvas.getBoundingClientRect();
+        return { x: (e.clientX - rect.left) / ovViewScale, y: (e.clientY - rect.top) / ovViewScale };
+    }
+
+    ovCanvas.addEventListener("pointerdown", (e) => {
+        if (!ovBase) return;
+        const p = canvasToImage(e);
+        let hit = -1;
+        for (let i = ovLayers.length - 1; i >= 0; i--) {
+            const L = ovLayers[i];
+            const a = -L.rot * Math.PI / 180;
+            const dx = p.x - L.x, dy = p.y - L.y;
+            const lx = dx * Math.cos(a) - dy * Math.sin(a);
+            const ly = dx * Math.sin(a) + dy * Math.cos(a);
+            if (Math.abs(lx) <= L.w / 2 + 4 && Math.abs(ly) <= L.h / 2 + 4) { hit = i; break; }
+        }
+        ovSelected = hit;
+        renderOv();
+        if (hit >= 0) startOvGesture(e, "move");
+    });
+
+    function startOvGesture(e, mode) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (ovSelected < 0 || !ovLayers[ovSelected]) return;
+        const L = ovLayers[ovSelected];
+        const start = canvasToImage(e);
+        const s0 = { x: L.x, y: L.y, w: L.w, h: L.h, rot: L.rot, fontSize: L.fontSize };
+        const onMove = (ev) => {
+            const p = canvasToImage(ev);
+            if (mode === "move") {
+                L.x = s0.x + (p.x - start.x);
+                L.y = s0.y + (p.y - start.y);
+            } else if (mode === "scale") {
+                if (L.kind === "text") {
+                    const d0 = Math.hypot(start.x - s0.x, start.y - s0.y) || 1;
+                    const d1 = Math.hypot(p.x - s0.x, p.y - s0.y);
+                    const k = Math.max(0.05, d1 / d0);
+                    L.fontSize = Math.max(8, Math.round(s0.fontSize * k));
+                } else if (document.getElementById("chk-ov-free-scale").checked) {
+                    const a = -s0.rot * Math.PI / 180;
+                    const dx = p.x - s0.x, dy = p.y - s0.y;
+                    const lx = dx * Math.cos(a) - dy * Math.sin(a);
+                    const ly = dx * Math.sin(a) + dy * Math.cos(a);
+                    L.w = Math.max(8, Math.abs(lx) * 2);
+                    L.h = Math.max(8, Math.abs(ly) * 2);
+                } else {
+                    const d0 = Math.hypot(start.x - s0.x, start.y - s0.y) || 1;
+                    const d1 = Math.hypot(p.x - s0.x, p.y - s0.y);
+                    const k = Math.max(0.05, d1 / d0);
+                    L.w = Math.max(8, s0.w * k);
+                    L.h = Math.max(8, s0.h * k);
+                }
+            } else if (mode === "scaleX" || mode === "scaleY") {
+                const a = -s0.rot * Math.PI / 180;
+                const dx = p.x - s0.x, dy = p.y - s0.y;
+                const lx = dx * Math.cos(a) - dy * Math.sin(a);
+                const ly = dx * Math.sin(a) + dy * Math.cos(a);
+                if (mode === "scaleX") L.w = Math.max(8, Math.abs(lx) * 2);
+                else L.h = Math.max(8, Math.abs(ly) * 2);
+            } else if (mode === "rotate") {
+                const a0 = Math.atan2(start.y - s0.y, start.x - s0.x);
+                const a1 = Math.atan2(p.y - s0.y, p.x - s0.x);
+                L.rot = s0.rot + (a1 - a0) * 180 / Math.PI;
+            }
+            renderOv();
+            syncOvSliders(L);
+        };
+        const onUp = () => {
+            window.removeEventListener("pointermove", onMove);
+            window.removeEventListener("pointerup", onUp);
+        };
+        window.addEventListener("pointermove", onMove);
+        window.addEventListener("pointerup", onUp);
+    }
+
+    const inputOvLayer = document.getElementById("input-ov-layer");
+    const boxOvLayer = document.getElementById("box-ov-layer-upload");
+    boxOvLayer.addEventListener("click", () => inputOvLayer.click());
+    enableDropUpload(boxOvLayer, inputOvLayer);
+    inputOvLayer.addEventListener("change", async (e) => {
+        if (!ovBase) { alert("请先上传底图"); e.target.value = ""; return; }
+        const files = e.target.files ? Array.from(e.target.files) : [];
+        e.target.value = "";
+        let lastImg = null;
+        for (const file of files) {
+            try {
+                const img = await loadImage(URL.createObjectURL(file));
+                const w = img.naturalWidth || img.width;
+                const h = img.naturalHeight || img.height;
+                if (!w || !h) continue;
+                const k = Math.min(ovBase.w * 0.3 / w, ovBase.h * 0.3 / h, 1);
+                ovLayers.push({
+                    kind: "image", img,
+                    x: ovBase.w / 2, y: ovBase.h / 2,
+                    w: Math.round(w * k), h: Math.round(h * k),
+                    rot: 0, opacity: 1, borderWidth: 0, borderColor: "#FFFFFF", radius: 0
+                });
+                ovSelected = ovLayers.length - 1;
+                lastImg = img;
+            } catch (err) { /* 单张失败跳过 */ }
+        }
+        if (lastImg) {
+            const lp = document.getElementById("img-ov-layer-preview");
+            lp.src = lastImg.src;
+            lp.style.display = "block";
+            boxOvLayer.querySelector(".upload-icon").style.display = "none";
+            boxOvLayer.querySelector(".upload-text").style.display = "none";
+            boxOvLayer.querySelector(".upload-hint").style.display = "none";
+        }
+        renderOv();
+    });
+
+    document.getElementById("btn-ov-add-text").addEventListener("click", () => {
+        if (!ovBase) { alert("请先上传底图"); return; }
+        ovLayers.push({
+            kind: "text", text: "双击编辑文字",
+            x: ovBase.w / 2, y: ovBase.h / 2,
+            w: 100, h: 60, rot: 0, opacity: 1,
+            fontSize: Math.max(24, Math.round(ovBase.h / 10)),
+            textColor: "#FFFFFF", stroke: true,
+            weight: "bold", italic: false
+        });
+        ovSelected = ovLayers.length - 1;
+        renderOv();
+    });
+
+    document.getElementById("btn-ov-delete").addEventListener("click", () => {
+        if (ovSelected < 0) { alert("请先在画布上选中一个图层"); return; }
+        ovLayers.splice(ovSelected, 1);
+        ovSelected = -1;
+        renderOv();
+    });
+
+    ovCanvas.addEventListener("dblclick", () => {
+        if (ovSelected >= 0 && ovLayers[ovSelected] && ovLayers[ovSelected].kind === "text") {
+            const inp = document.getElementById("ov-text-input");
+            inp.focus();
+            inp.select();
+        }
+    });
+
+    function syncOvPropsPanel() {
+        const L = ovLayers[ovSelected];
+        const card = document.getElementById("card-ov-props");
+        card.style.display = L ? "block" : "none";
+        if (!L) return;
+        const isText = L.kind === "text";
+        document.getElementById("ov-props-image").hidden = isText;
+        document.getElementById("ov-props-text").hidden = !isText;
+        document.getElementById("txt-ov-layer-kind").textContent =
+            isText ? "（文字图层）" : `（覆盖图 ${ovSelected + 1}/${ovLayers.filter(x => x.kind === "image").length}）`;
+        syncOvSliders(L);
+        if (isText) document.getElementById("ov-text-input").value = L.text;
+    }
+
+    function syncOvSliders(L) {
+        if (!L) return;
+        if (L.kind === "image") {
+            const pct = Math.round(L.w / ovBase.w * 1000) / 10;
+            const pctH = Math.round(L.h / ovBase.h * 1000) / 10;
+            const freeScale = document.getElementById("chk-ov-free-scale").checked;
+            document.getElementById("ov-slider-opacity").value = L.opacity;
+            document.getElementById("ov-slider-width").value = Math.min(100, pct);
+            document.getElementById("ov-slider-rotate").value = Math.round(L.rot);
+            document.getElementById("ov-slider-border").value = L.borderWidth;
+            document.getElementById("ov-slider-radius").value = L.radius;
+            const hSlider = document.getElementById("ov-slider-height");
+            hSlider.disabled = !freeScale;
+            hSlider.value = Math.min(100, pctH);
+            document.getElementById("ov-val-opacity").textContent = Math.round(L.opacity * 100) + "%";
+            document.getElementById("ov-val-width").textContent = pct + "%";
+            document.getElementById("ov-val-height").textContent = pctH + "%";
+            document.getElementById("ov-val-rotate").textContent = Math.round(L.rot) + "°";
+            document.getElementById("ov-val-border").textContent = L.borderWidth + "px";
+            document.getElementById("ov-val-radius").textContent = L.radius + "px";
+            document.getElementById("ov-border-color").value = L.borderColor;
+            syncOvPxInputs(L);
+        } else {
+            document.getElementById("ov-slider-t-opacity").value = L.opacity;
+            document.getElementById("ov-slider-t-size").value = L.fontSize;
+            document.getElementById("ov-slider-t-rotate").value = Math.round(L.rot);
+            document.getElementById("ov-val-t-opacity").textContent = Math.round(L.opacity * 100) + "%";
+            document.getElementById("ov-val-t-size").textContent = L.fontSize + "px";
+            document.getElementById("ov-val-t-rotate").textContent = Math.round(L.rot) + "°";
+            document.getElementById("ov-text-color").value = L.textColor;
+            document.getElementById("chk-ov-text-stroke").checked = !!L.stroke;
+            document.getElementById("chk-ov-text-italic").checked = !!L.italic;
+            document.querySelectorAll("#ov-text-weight-group .segmented-btn").forEach(b => {
+                b.classList.toggle("active", b.getAttribute("data-weight") === (L.weight || "bold"));
+            });
+        }
+    }
+
+    function ovProp(getL, apply) {
+        return () => {
+            const L = getL();
+            if (!L) return;
+            apply(L);
+            renderOv();
+        };
+    }
+    const selImage = () => (ovSelected >= 0 && ovLayers[ovSelected] && ovLayers[ovSelected].kind === "image") ? ovLayers[ovSelected] : null;
+    const selText = () => (ovSelected >= 0 && ovLayers[ovSelected] && ovLayers[ovSelected].kind === "text") ? ovLayers[ovSelected] : null;
+
+    document.getElementById("ov-slider-opacity").addEventListener("input", ovProp(selImage, L => L.opacity = parseFloat(document.getElementById("ov-slider-opacity").value)));
+    document.getElementById("ov-slider-width").addEventListener("input", ovProp(selImage, L => {
+        const pct = parseFloat(document.getElementById("ov-slider-width").value);
+        const w = ovBase.w * pct / 100;
+        if (!document.getElementById("chk-ov-free-scale").checked) {
+            const k = w / L.w;
+            L.h = Math.max(8, L.h * k);
+        }
+        L.w = w;
+    }));
+    const ovHeightSlider = document.getElementById("ov-slider-height");
+    ovHeightSlider.addEventListener("input", ovProp(selImage, L => {
+        if (!document.getElementById("chk-ov-free-scale").checked) return;
+        L.h = Math.max(8, ovBase.h * parseFloat(ovHeightSlider.value) / 100);
+    }));
+    document.getElementById("chk-ov-free-scale").addEventListener("change", () => {
+        const L = selImage();
+        if (!L || !L.img) return;
+        if (!document.getElementById("chk-ov-free-scale").checked) {
+            const ratio = L.img.naturalHeight / L.img.naturalWidth;
+            L.h = Math.max(8, Math.round(L.w * ratio));
+        }
+        renderOv();
+        syncOvSliders(L);
+    });
+    document.getElementById("btn-ov-fit-base").addEventListener("click", () => {
+        const L = selImage();
+        if (!L) { alert("请先选中一个覆盖图"); return; }
+        L.w = ovBase.w;
+        L.h = ovBase.h;
+        L.x = ovBase.w / 2;
+        L.y = ovBase.h / 2;
+        renderOv();
+    });
+    function syncOvPxInputs(L) {
+        if (!L || L.kind !== "image") return;
+        document.getElementById("ov-px-width").value = Math.round(L.w);
+        document.getElementById("ov-px-height").value = Math.round(L.h);
+    }
+    document.getElementById("btn-ov-apply-px").addEventListener("click", () => {
+        const L = selImage();
+        if (!L) { alert("请先选中一个覆盖图"); return; }
+        let w = parseInt(document.getElementById("ov-px-width").value, 10);
+        let h = parseInt(document.getElementById("ov-px-height").value, 10);
+        const free = document.getElementById("chk-ov-free-scale").checked;
+        if (isNaN(w) && !isNaN(h)) w = free ? L.w : Math.max(1, Math.round(L.w * h / L.h));
+        if (isNaN(h) && !isNaN(w)) h = free ? L.h : Math.max(1, Math.round(L.h * w / L.w));
+        if (isNaN(w) || isNaN(h)) { alert("请至少填写宽度或高度其中一个像素值"); return; }
+        L.w = Math.max(1, w);
+        L.h = Math.max(1, h);
+        renderOv();
+    });
+    document.getElementById("ov-slider-rotate").addEventListener("input", ovProp(selImage, L => L.rot = parseInt(document.getElementById("ov-slider-rotate").value, 10)));
+    document.getElementById("ov-slider-border").addEventListener("input", ovProp(selImage, L => L.borderWidth = parseInt(document.getElementById("ov-slider-border").value, 10)));
+    document.getElementById("ov-slider-radius").addEventListener("input", ovProp(selImage, L => L.radius = parseInt(document.getElementById("ov-slider-radius").value, 10)));
+    document.getElementById("ov-border-color").addEventListener("input", ovProp(selImage, L => L.borderColor = document.getElementById("ov-border-color").value));
+
+    document.getElementById("ov-text-input").addEventListener("input", ovProp(selText, L => L.text = document.getElementById("ov-text-input").value || " "));
+    document.getElementById("ov-slider-t-opacity").addEventListener("input", ovProp(selText, L => L.opacity = parseFloat(document.getElementById("ov-slider-t-opacity").value)));
+    document.getElementById("ov-slider-t-size").addEventListener("input", ovProp(selText, L => L.fontSize = parseInt(document.getElementById("ov-slider-t-size").value, 10)));
+    document.getElementById("ov-slider-t-rotate").addEventListener("input", ovProp(selText, L => L.rot = parseInt(document.getElementById("ov-slider-t-rotate").value, 10)));
+    document.getElementById("ov-text-color").addEventListener("input", ovProp(selText, L => L.textColor = document.getElementById("ov-text-color").value));
+    document.getElementById("chk-ov-text-stroke").addEventListener("change", ovProp(selText, L => L.stroke = document.getElementById("chk-ov-text-stroke").checked));
+    document.getElementById("chk-ov-text-italic").addEventListener("change", ovProp(selText, L => L.italic = document.getElementById("chk-ov-text-italic").checked));
+    document.querySelectorAll("#ov-text-weight-group .segmented-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            document.querySelectorAll("#ov-text-weight-group .segmented-btn").forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+            const L = selText();
+            if (!L) return;
+            L.weight = btn.getAttribute("data-weight");
+            renderOv();
+        });
+    });
+
+    document.getElementById("btn-ov-download").addEventListener("click", () => {
+        if (!ovBase) { alert("请先上传底图"); return; }
+        const keep = ovSelected;
+        ovSelected = -1;
+        renderOv();
+        ovCanvas.toBlob(blob => {
+            ovSelected = keep;
+            renderOv();
+            if (!blob) { alert("导出失败"); return; }
+            const a = document.createElement("a");
+            const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14);
+            a.href = URL.createObjectURL(blob);
+            a.download = `overlay_${stamp}.png`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            document.getElementById("txt-ov-summary").textContent =
+                `已导出 ${ovBase.w}x${ovBase.h} 成品（${ovLayers.length} 个图层）| ${(blob.size / 1024).toFixed(1)} KB`;
+        }, "image/png");
+    });
+
+    window.addEventListener("resize", () => {
+        if (ovBase) renderOv();
     });
 
     const modal = document.getElementById("modal-preview");
