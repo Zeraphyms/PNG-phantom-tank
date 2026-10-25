@@ -1447,9 +1447,19 @@ html.dark .cover-row {
   cursor: crosshair;
 }
 
-.gm-editor-grid.split-mode .gm-block-hit:hover {
+.gm-editor-grid:not(.split-mode) .gm-block-hit {
+  cursor: pointer;
+}
+
+.gm-editor-grid:not(.split-mode) .gm-block-hit:hover {
   outline: 2px dashed var(--primary);
   outline-offset: -2px;
+}
+
+/* 合并模式：选中块高亮 */
+.gm-block-outline.selected {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 25%, transparent);
 }
 
 .gm-block-hit {
@@ -1460,6 +1470,16 @@ html.dark .cover-row {
 
 /* 块轮廓（合并后的大块实线框） */
 .gm-block-outline {
+  position: absolute;
+  box-sizing: border-box;
+  border: 2.5px solid var(--primary);
+  /* 无背景：L 形逐格描边版，底色叠加会产生视觉假象 */
+  background: transparent;
+  pointer-events: none;
+}
+
+/* 矩形块：整块圆角卡片（旧版观感恢复） */
+.gm-block-card {
   position: absolute;
   box-sizing: border-box;
   border: 2.5px solid var(--primary);

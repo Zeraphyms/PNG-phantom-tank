@@ -2810,14 +2810,15 @@ document.addEventListener("DOMContentLoaded", () => {
     // hEdges[r][c] = 行 r 与 r+1 之间、列 c 处的横边（r: 0..rows-2）
     // vEdges[r][c] = 列 c 与 c+1 之间、行 r 处的竖边（c: 0..cols-2）
     let gmECols = 3, gmERows = 2;
-    let gmHEdges = [], gmVEdges = [];   // true = 边打开（分割）
-    let gmSplits = [];                  // 细分层：[{ blockIndex, dir: 'h'|'v', n }]（对当前连通块再等分）
-    let gmOrient = "h";                 // h=横切（宽>高，如 3x2），v=竖切（高>宽，如 2x3）
-    let gmDivide = "6";                 // 当前等分份数
-    let gmUndoStack = [];               // 状态快照栈
-    let gmTool = "merge";               // merge=点边线合并，split=点块细分
+    // 线段模型：所有分割线统一记录。hSeg = 水平线（y 位置，跨 [x0,x1)），vSeg = 垂直线（x 位置，跨 [y0,y1)）。
+    // 单位 = 格子（浮点）。网格等分 = 满跨线；细分 = 块内线；合并 = 删线。
+    let gmHSegs = [], gmVSegs = [];
+    let gmOrient = "h";
+    let gmDivide = "6";
+    let gmUndoStack = [];
+    let gmTool = "merge";
 
-    // 份数 → 行列（按方向取窄边/长边；正方形份数不受方向影响）
+    // 份数 → 行列
     function gmDivideDims(divide, orient) {
         const map = {
             "2":  [1, 2],
@@ -2828,7 +2829,6 @@ document.addEventListener("DOMContentLoaded", () => {
             "16": [4, 4]
         };
         let [a, b] = map[divide] || map["6"];
-        // a=列 b=行；横切 = 列多行少（宽扁）；竖切 = 行多列少（高瘦）
         if (a !== b) {
             if (orient === "h") return { cols: Math.max(a, b), rows: Math.min(a, b) };
             return { cols: Math.min(a, b), rows: Math.max(a, b) };
@@ -2839,103 +2839,159 @@ document.addEventListener("DOMContentLoaded", () => {
     function gmSnapshot() {
         return {
             cols: gmECols, rows: gmERows,
-            h: gmHEdges.map(r => r.slice()),
-            v: gmVEdges.map(r => r.slice()),
-            splits: gmSplits.map(s => ({ ...s }))
+            h: gmHSegs.map(s => ({ ...s })),
+            v: gmVSegs.map(s => ({ ...s }))
         };
     }
 
     function gmEditorReset(cols, rows) {
         gmECols = cols; gmERows = rows;
-        gmHEdges = Array.from({ length: rows - 1 }, () => Array(cols).fill(true));
-        gmVEdges = Array.from({ length: rows }, () => Array(cols - 1).fill(true));
-        gmSplits = [];   // [{ blockIndex, dir: 'h'|'v', n }] 细分层（blockIndex 对应 gmEditorBlocks 结果）
+        // 初始化：等分网格线（满跨）
+        gmHSegs = [];
+        gmVSegs = [];
+        for (let r = 1; r < rows; r++) gmHSegs.push({ pos: r, x0: 0, x1: cols });
+        for (let c = 1; c < cols; c++) gmVSegs.push({ pos: c, y0: 0, y1: rows });
         gmUndoStack = [];
         renderGmEditor();
         refreshGmBadge();
         scheduleGmPreview();
     }
 
-    // 基础连通块（边模型），再叠加细分层：每个叶子矩形
-    function gmEditorBlocks() {
-        const visited = Array.from({ length: gmERows }, () => Array(gmECols).fill(false));
-        const rects = [];
-        for (let r = 0; r < gmERows; r++) {
-            for (let c = 0; c < gmECols; c++) {
-                if (visited[r][c]) continue;
-                let c0 = c, r0 = r, c1 = c, r1 = r;
+    // 线段模型 → 连通区域（支持 L 形）：
+    // ① 收集所有线段位置构成"精细网格"（含细分的 0.5 格等非整数位置）
+    // ② 精细格之间若无线段相隔则连通（BFS 合并）
+    // ③ 连通区域 = 一组精细格（可能 L 形），记录包围盒 + 格子列表
+    function gmFineGrid() {
+        const xsSet = [0, gmECols], ysSet = [0, gmERows];
+        for (const s of gmVSegs) { xsSet.push(s.pos); }
+        for (const s of gmHSegs) { ysSet.push(s.pos); }
+        const xs = [...new Set(xsSet.map(v => Math.round(v * 1e6) / 1e6))].sort((a, b) => a - b);
+        const ys = [...new Set(ysSet.map(v => Math.round(v * 1e6) / 1e6))].sort((a, b) => a - b);
+        return { xs, ys };
+    }
+
+    // 精细格 (ci, ri) 与右侧格之间是否有竖线
+    function gmHasVCut(x, y0, y1) {
+        const EPS = 1e-6;
+        return gmVSegs.some(s => Math.abs(s.pos - x) < EPS && s.y0 < y1 - EPS && s.y1 > y0 + EPS);
+    }
+    function gmHasHCut(y, x0, x1) {
+        const EPS = 1e-6;
+        return gmHSegs.some(s => Math.abs(s.pos - y) < EPS && s.x0 < x1 - EPS && s.x1 > x0 + EPS);
+    }
+
+    function gmEditorLeaves() {
+        const { xs, ys } = gmFineGrid();
+        const NC = xs.length - 1, NR = ys.length - 1;   // 精细格列行数
+        const owner = Array.from({ length: NR }, () => Array(NC).fill(-1));
+        const regions = [];
+        for (let r = 0; r < NR; r++) {
+            for (let c = 0; c < NC; c++) {
+                if (owner[r][c] >= 0) continue;
+                const id = regions.length;
+                const cells = [];
                 const q = [[r, c]];
-                visited[r][c] = true;
+                owner[r][c] = id;
                 while (q.length) {
                     const [cr, cc] = q.pop();
-                    c0 = Math.min(c0, cc); r0 = Math.min(r0, cr);
-                    c1 = Math.max(c1, cc); r1 = Math.max(r1, cr);
-                    if (cr > 0 && !gmHEdges[cr - 1][cc] && !visited[cr - 1][cc]) { visited[cr - 1][cc] = true; q.push([cr - 1, cc]); }
-                    if (cr < gmERows - 1 && !gmHEdges[cr][cc] && !visited[cr + 1][cc]) { visited[cr + 1][cc] = true; q.push([cr + 1, cc]); }
-                    if (cc > 0 && !gmVEdges[cr][cc - 1] && !visited[cr][cc - 1]) { visited[cr][cc - 1] = true; q.push([cr, cc - 1]); }
-                    if (cc < gmECols - 1 && !gmVEdges[cr][cc] && !visited[cr][cc + 1]) { visited[cr][cc + 1] = true; q.push([cr, cc + 1]); }
+                    cells.push({ cx0: xs[cc], cy0: ys[cr], cx1: xs[cc + 1], cy1: ys[cr + 1] });
+                    // 四方向连通：无相隔线段才通
+                    if (cc > 0 && owner[cr][cc - 1] < 0 && !gmHasVCut(xs[cc], ys[cr], ys[cr + 1])) {
+                        owner[cr][cc - 1] = id; q.push([cr, cc - 1]);
+                    }
+                    if (cc < NC - 1 && owner[cr][cc + 1] < 0 && !gmHasVCut(xs[cc + 1], ys[cr], ys[cr + 1])) {
+                        owner[cr][cc + 1] = id; q.push([cr, cc + 1]);
+                    }
+                    if (cr > 0 && owner[cr - 1][cc] < 0 && !gmHasHCut(ys[cr], xs[cc], xs[cc + 1])) {
+                        owner[cr - 1][cc] = id; q.push([cr - 1, cc]);
+                    }
+                    if (cr < NR - 1 && owner[cr + 1][cc] < 0 && !gmHasHCut(ys[cr + 1], xs[cc], xs[cc + 1])) {
+                        owner[cr + 1][cc] = id; q.push([cr + 1, cc]);
+                    }
                 }
-                rects.push({ c0, r0, cw: c1 - c0 + 1, rh: r1 - r0 + 1 });
+                // 包围盒
+                let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
+                cells.forEach(cl => {
+                    bx0 = Math.min(bx0, cl.cx0); by0 = Math.min(by0, cl.cy0);
+                    bx1 = Math.max(bx1, cl.cx1); by1 = Math.max(by1, cl.cy1);
+                });
+                regions.push({ x0: bx0, y0: by0, x1: bx1, y1: by1, cells });
             }
         }
-        return rects;
+        return regions;
     }
 
-    // 细分展开：基础块 + splits → 叶子矩形列表。
-    // splits 直接按【叶子矩形坐标】记录（x, y, w, h 为格子单位浮点），
-    // 应用时递归匹配：一个 split 若落在已有 split 的子矩形内，则继续对子矩形细分（支持嵌套）。
-    function gmEditorLeaves() {
-        const base = gmEditorBlocks();
-        let leaves = base.map((b, i) => ({ c0: b.c0, r0: b.r0, cw: b.cw, rh: b.rh, baseIndex: i }));
-        // 逐个应用 split：找到完全包含该矩形的叶子，替换为 n 个子矩形
-        for (const s of gmSplits) {
-            const idx = leaves.findIndex(L =>
-                s.x >= L.c0 - 1e-6 && s.y >= L.r0 - 1e-6 &&
-                s.x + s.w <= L.c0 + L.cw + 1e-6 && s.y + s.h <= L.r0 + L.rh + 1e-6
-            );
-            if (idx < 0) continue;   // 找不到（结构已变，防御）
-            const L = leaves[idx];
-            const subs = [];
-            for (let k = 0; k < s.n; k++) {
-                if (s.dir === "h") {
-                    subs.push({ c0: L.c0, r0: L.r0 + k * L.rh / s.n, cw: L.cw, rh: L.rh / s.n, baseIndex: L.baseIndex });
-                } else {
-                    subs.push({ c0: L.c0 + k * L.cw / s.n, r0: L.r0, cw: L.cw / s.n, rh: L.rh, baseIndex: L.baseIndex });
-                }
+    // 细分：叶子区域包围盒内加 n-1 条线（L 形块按包围盒切）
+    function gmSplitLeaf(leaf, dir, n) {
+        gmUndoStack.push(gmSnapshot());
+        if (dir === "h") {
+            for (let k = 1; k < n; k++) {
+                gmHSegs.push({ pos: leaf.y0 + (leaf.y1 - leaf.y0) * k / n, x0: leaf.x0, x1: leaf.x1 });
             }
-            leaves.splice(idx, 1, ...subs);
+        } else {
+            for (let k = 1; k < n; k++) {
+                gmVSegs.push({ pos: leaf.x0 + (leaf.x1 - leaf.x0) * k / n, y0: leaf.y0, y1: leaf.y1 });
+            }
         }
-        return leaves;
+        renderGmEditor();
+        refreshGmBadge();
+        scheduleGmPreview();
     }
 
-    // 叶子矩形 → 归一化布局（图片填充顺序）
-    function gmEditorLayout() {
-        return gmEditorLeaves().map(b => [b.c0 / gmECols, b.r0 / gmERows, b.cw / gmECols, b.rh / gmERows]);
-    }
-
-    // 渲染编辑器：叶子块轮廓 + 可点边线（合并模式）/ 可点块（细分模式）
+    // 渲染编辑器：
+    // 合并模式 = 点线段合并（渲染所有现存线段为可点线条，点击=抠掉该段跨度）
+    // 细分模式 = 点块弹菜单
     function renderGmEditor() {
         const grid = document.getElementById("gm-editor-grid");
         grid.innerHTML = "";
         grid.classList.toggle("split-mode", gmTool === "split");
         const leaves = gmEditorLeaves();
-        // 叶子块轮廓
+        // 区域轮廓。矩形区域（cells 铺满包围盒）= 整块圆角卡片样式（旧版观感）；
+        // L 形区域 = 逐格外边界描边（无底色，避免叠加缝）。
+        const isRect = B => {
+            const area = B.cells.reduce((s, c) => s + (c.cx1 - c.cx0) * (c.cy1 - c.cy0), 0);
+            const box = (B.x1 - B.x0) * (B.y1 - B.y0);
+            return Math.abs(area - box) < 1e-6;
+        };
         leaves.forEach(B => {
-            const out = document.createElement("div");
-            out.className = "gm-block-outline";
-            out.style.left = (B.c0 / gmECols * 100) + "%";
-            out.style.top = (B.r0 / gmERows * 100) + "%";
-            out.style.width = (B.cw / gmECols * 100) + "%";
-            out.style.height = (B.rh / gmERows * 100) + "%";
-            grid.appendChild(out);
-            // 细分模式：点块弹细分菜单
+            if (isRect(B)) {
+                // 矩形块：单个圆角卡片
+                const card = document.createElement("div");
+                card.className = "gm-block-card";
+                card.style.left = (B.x0 / gmECols * 100) + "%";
+                card.style.top = (B.y0 / gmERows * 100) + "%";
+                card.style.width = ((B.x1 - B.x0) / gmECols * 100) + "%";
+                card.style.height = ((B.y1 - B.y0) / gmERows * 100) + "%";
+                grid.appendChild(card);
+            } else {
+                // L 形块：逐格描外边界
+                B.cells.forEach(cl => {
+                    const overlap = (a, b) => a.cx0 < b.cx1 - 1e-6 && a.cx1 > b.cx0 + 1e-6;   // x 区间重叠
+                    const overlapY = (a, b) => a.cy0 < b.cy1 - 1e-6 && a.cy1 > b.cy0 + 1e-6;
+                    const hasTop = B.cells.some(o => o !== cl && Math.abs(o.cy1 - cl.cy0) < 1e-6 && overlap(o, cl));
+                    const hasBottom = B.cells.some(o => o !== cl && Math.abs(o.cy0 - cl.cy1) < 1e-6 && overlap(o, cl));
+                    const hasLeft = B.cells.some(o => o !== cl && Math.abs(o.cx1 - cl.cx0) < 1e-6 && overlapY(o, cl));
+                    const hasRight = B.cells.some(o => o !== cl && Math.abs(o.cx0 - cl.cx1) < 1e-6 && overlapY(o, cl));
+                    const out = document.createElement("div");
+                    out.className = "gm-block-outline";
+                    out.style.left = (cl.cx0 / gmECols * 100) + "%";
+                    out.style.top = (cl.cy0 / gmERows * 100) + "%";
+                    out.style.width = ((cl.cx1 - cl.cx0) / gmECols * 100) + "%";
+                    out.style.height = ((cl.cy1 - cl.cy0) / gmERows * 100) + "%";
+                    out.style.borderTopWidth = hasTop ? "0" : "";
+                    out.style.borderBottomWidth = hasBottom ? "0" : "";
+                    out.style.borderLeftWidth = hasLeft ? "0" : "";
+                    out.style.borderRightWidth = hasRight ? "0" : "";
+                    grid.appendChild(out);
+                });
+            }
             if (gmTool === "split") {
                 const hit = document.createElement("div");
                 hit.className = "gm-block-hit";
-                hit.style.left = out.style.left;
-                hit.style.top = out.style.top;
-                hit.style.width = out.style.width;
-                hit.style.height = out.style.height;
+                hit.style.left = (B.x0 / gmECols * 100) + "%";
+                hit.style.top = (B.y0 / gmERows * 100) + "%";
+                hit.style.width = ((B.x1 - B.x0) / gmECols * 100) + "%";
+                hit.style.height = ((B.y1 - B.y0) / gmERows * 100) + "%";
                 hit.addEventListener("click", (e) => {
                     e.stopPropagation();
                     showGmSplitPop(e, B);
@@ -2943,18 +2999,34 @@ document.addEventListener("DOMContentLoaded", () => {
                 grid.appendChild(hit);
             }
         });
-        // 可点边线：横边（仅合并模式）
+        // 合并模式：线段按精细格边界拆成小段渲染，点哪段删哪段（不会整条越界合并）
         if (gmTool === "merge") {
-            for (let r = 0; r < gmERows - 1; r++) {
-                for (let c = 0; c < gmECols; c++) {
+            const { xs, ys } = gmFineGrid();
+            // 横线：按 x 边界拆段
+            for (const s of gmHSegs) {
+                const cuts = xs.filter(x => x > s.x0 + 1e-6 && x < s.x1 - 1e-6);
+                const edgesX = [s.x0, ...cuts, s.x1];
+                for (let i = 0; i < edgesX.length - 1; i++) {
+                    const segX0 = edgesX[i], segX1 = edgesX[i + 1];
                     const e = document.createElement("div");
-                    e.className = "gm-edge gm-edge-h" + (gmHEdges[r][c] ? " open" : " closed");
-                    e.style.left = (c / gmECols * 100) + "%";
-                    e.style.top = ((r + 1) / gmERows * 100) + "%";
-                    e.style.width = (100 / gmECols) + "%";
+                    e.className = "gm-edge gm-edge-h open";
+                    e.style.left = (segX0 / gmECols * 100) + "%";
+                    e.style.top = (s.pos / gmERows * 100) + "%";
+                    e.style.width = ((segX1 - segX0) / gmECols * 100) + "%";
                     e.addEventListener("click", () => {
                         gmUndoStack.push(gmSnapshot());
-                        gmHEdges[r][c] = !gmHEdges[r][c];
+                        // 抠掉这一小段：线段减法
+                        const EPS = 1e-6;
+                        const next = [];
+                        for (const t of gmHSegs) {
+                            if (Math.abs(t.pos - s.pos) > EPS || t.x0 >= segX1 - EPS || t.x1 <= segX0 + EPS) {
+                                next.push(t);
+                                continue;
+                            }
+                            if (t.x0 < segX0 - EPS) next.push({ pos: t.pos, x0: t.x0, x1: segX0 });
+                            if (t.x1 > segX1 + EPS) next.push({ pos: t.pos, x0: segX1, x1: t.x1 });
+                        }
+                        gmHSegs = next;
                         renderGmEditor();
                         refreshGmBadge();
                         scheduleGmPreview();
@@ -2962,17 +3034,30 @@ document.addEventListener("DOMContentLoaded", () => {
                     grid.appendChild(e);
                 }
             }
-            // 可点边线：竖边
-            for (let r = 0; r < gmERows; r++) {
-                for (let c = 0; c < gmECols - 1; c++) {
+            // 竖线：按 y 边界拆段
+            for (const s of gmVSegs) {
+                const cuts = ys.filter(y => y > s.y0 + 1e-6 && y < s.y1 - 1e-6);
+                const edgesY = [s.y0, ...cuts, s.y1];
+                for (let i = 0; i < edgesY.length - 1; i++) {
+                    const segY0 = edgesY[i], segY1 = edgesY[i + 1];
                     const e = document.createElement("div");
-                    e.className = "gm-edge gm-edge-v" + (gmVEdges[r][c] ? " open" : " closed");
-                    e.style.left = ((c + 1) / gmECols * 100) + "%";
-                    e.style.top = (r / gmERows * 100) + "%";
-                    e.style.height = (100 / gmERows) + "%";
+                    e.className = "gm-edge gm-edge-v open";
+                    e.style.left = (s.pos / gmECols * 100) + "%";
+                    e.style.top = (segY0 / gmERows * 100) + "%";
+                    e.style.height = ((segY1 - segY0) / gmERows * 100) + "%";
                     e.addEventListener("click", () => {
                         gmUndoStack.push(gmSnapshot());
-                        gmVEdges[r][c] = !gmVEdges[r][c];
+                        const EPS = 1e-6;
+                        const next = [];
+                        for (const t of gmVSegs) {
+                            if (Math.abs(t.pos - s.pos) > EPS || t.y0 >= segY1 - EPS || t.y1 <= segY0 + EPS) {
+                                next.push(t);
+                                continue;
+                            }
+                            if (t.y0 < segY0 - EPS) next.push({ pos: t.pos, y0: t.y0, y1: segY0 });
+                            if (t.y1 > segY1 + EPS) next.push({ pos: t.pos, y0: segY1, y1: t.y1 });
+                        }
+                        gmVSegs = next;
                         renderGmEditor();
                         refreshGmBadge();
                         scheduleGmPreview();
@@ -2992,7 +3077,7 @@ document.addEventListener("DOMContentLoaded", () => {
         pop.hidden = false;
         pop.style.left = Math.min(e.clientX - gRect.left, gRect.width - 240) + "px";
         pop.style.top = (e.clientY - gRect.top + 10) + "px";
-        // 重建按钮（清除上一轮残留的 once handler，避免点错块）
+        // 重建按钮（清除上一轮残留的 handler）
         pop.innerHTML = "";
         [["h2", "横切 2"], ["h3", "横切 3"], ["v2", "竖切 2"], ["v3", "竖切 3"]].forEach(([spec, label]) => {
             const btn = document.createElement("button");
@@ -3000,13 +3085,8 @@ document.addEventListener("DOMContentLoaded", () => {
             btn.textContent = label;
             btn.addEventListener("click", (ev) => {
                 ev.stopPropagation();
-                gmUndoStack.push(gmSnapshot());
-                // 直接记录点中的叶子矩形（格子单位），应用时递归定位——支持嵌套细分
-                gmSplits.push({ x: leaf.c0, y: leaf.r0, w: leaf.cw, h: leaf.rh, dir: spec[0], n: parseInt(spec[1], 10) });
                 hideGmSplitPop();
-                renderGmEditor();
-                refreshGmBadge();
-                scheduleGmPreview();
+                gmSplitLeaf(leaf, spec[0], parseInt(spec[1], 10));
             });
             pop.appendChild(btn);
         });
@@ -3044,22 +3124,21 @@ document.addEventListener("DOMContentLoaded", () => {
         const snap = gmUndoStack.pop();
         if (!snap) return;
         gmECols = snap.cols; gmERows = snap.rows;
-        gmHEdges = snap.h;
-        gmVEdges = snap.v;
-        gmSplits = snap.splits || [];
+        gmHSegs = snap.h;
+        gmVSegs = snap.v;
         renderGmEditor();
         refreshGmBadge();
         scheduleGmPreview();
     });
     document.getElementById("btn-gm-reset").addEventListener("click", () => gmApplyDivide());
-    // 编辑模式切换：合并（点边线）/ 细分（点块弹菜单）
+    // 编辑模式切换：合并（点线段）/ 细分（点块弹菜单）
     document.querySelectorAll("#gm-tool-group .segmented-btn").forEach(btn => {
         btn.addEventListener("click", () => {
             document.querySelectorAll("#gm-tool-group .segmented-btn").forEach(b => b.classList.remove("active"));
             btn.classList.add("active");
             gmTool = btn.getAttribute("data-tool");
             document.getElementById("txt-gm-mode-hint").textContent =
-                gmTool === "merge" ? "点格间线条合并/拆分" : "点击块选择横切/竖切份数";
+                gmTool === "merge" ? "点击线条合并两侧（可拼 L 形）" : "点击块选择横切/竖切份数";
             renderGmEditor();
         });
     });
@@ -3169,8 +3248,8 @@ document.addEventListener("DOMContentLoaded", () => {
         const radius = parseInt(gmSliders.radius.value, 10);
         const first = gmFiles[0];
 
-        // 布局来自网格编辑器（等分 + 边合并）
-        const regions = gmEditorLayout();
+        // 布局来自网格编辑器（连通区域，支持 L 形）
+        const regions = gmEditorLeaves();
         const list = gmFiles.slice(0, regions.length);
 
         const outW = parseInt(document.getElementById("gm-out-width").value, 10) || 0;
@@ -3188,25 +3267,33 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const inner = { x: margin, y: margin, w: cw - margin * 2, h: ch - margin * 2 };
         list.forEach((item, idx) => {
-            const [nx, ny, nw, nh] = regions[idx];
-            const cx = inner.x + nx * inner.w + gap / 2;
-            const cy = inner.y + ny * inner.h + gap / 2;
-            const cwCell = Math.max(1, nw * inner.w - gap);
-            const chCell = Math.max(1, nh * inner.h - gap);
-            const r = Math.min(radius, cwCell / 2, chCell / 2);
+            const R = regions[idx];
+            const bx = inner.x + R.x0 / gmECols * inner.w;
+            const by = inner.y + R.y0 / gmERows * inner.h;
+            const bw = (R.x1 - R.x0) / gmECols * inner.w;
+            const bh = (R.y1 - R.y0) / gmERows * inner.h;
+            // 裁剪路径 = 区域内所有精细格（L 形按格拼形）；每格内缩 gap/2
             ctx.save();
             ctx.beginPath();
-            if (r > 0 && ctx.roundRect) ctx.roundRect(cx, cy, cwCell, chCell, r);
-            else ctx.rect(cx, cy, cwCell, chCell);
+            R.cells.forEach(cl => {
+                const gx = inner.x + cl.cx0 / gmECols * inner.w + gap / 2;
+                const gy = inner.y + cl.cy0 / gmERows * inner.h + gap / 2;
+                const gw = (cl.cx1 - cl.cx0) / gmECols * inner.w - gap;
+                const gh = (cl.cy1 - cl.cy0) / gmERows * inner.h - gap;
+                const r = Math.min(radius, gw / 2, gh / 2);
+                if (r > 0 && ctx.roundRect) ctx.roundRect(gx, gy, Math.max(1, gw), Math.max(1, gh), r);
+                else ctx.rect(gx, gy, Math.max(1, gw), Math.max(1, gh));
+            });
             ctx.clip();
+            // 图片按包围盒 cover/contain（L 形裁剪只显示区域内的部分）
             if (gmFit === "cover") {
-                const k = Math.max(cwCell / item.w, chCell / item.h);
+                const k = Math.max(bw / item.w, bh / item.h);
                 const dw = item.w * k, dh = item.h * k;
-                ctx.drawImage(item.img, cx + (cwCell - dw) / 2, cy + (chCell - dh) / 2, dw, dh);
+                ctx.drawImage(item.img, bx + (bw - dw) / 2, by + (bh - dh) / 2, dw, dh);
             } else {
-                const k = Math.min(cwCell / item.w, chCell / item.h);
+                const k = Math.min(bw / item.w, bh / item.h);
                 const dw = item.w * k, dh = item.h * k;
-                ctx.drawImage(item.img, cx + (cwCell - dw) / 2, cy + (chCell - dh) / 2, dw, dh);
+                ctx.drawImage(item.img, bx + (bw - dw) / 2, by + (bh - dh) / 2, dw, dh);
             }
             ctx.restore();
         });
