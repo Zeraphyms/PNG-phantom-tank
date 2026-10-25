@@ -1,0 +1,7 @@
+# Cloudflare Pages 路径直达：访问这些路径时返回主页（状态 200 = 地址栏保持原路径）
+# 对应功能由 app.js 启动时的 routeByPath() 自动切换
+/split      /index.html  200
+/chaos      /index.html  200
+/clean      /index.html  200
+/weathering /index.html  200
+/processing /index.html  200

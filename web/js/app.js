@@ -26,12 +26,29 @@ document.addEventListener("DOMContentLoaded", () => {
     const tabPages = document.querySelectorAll(".tab-page");
 
     // 1. Tab 切换
+    // 主 Tab 与「更多功能」子功能的页面 id → 名称/路径映射
+    const FEATURE_PAGES = {
+        "page-split":     { name: "✂️ 拆解动图", path: "/split" },
+        "page-chaos":     { name: "🌀 图片混淆", path: "/chaos" },
+        "page-clean":     { name: "🧹 清除信息", path: "/clean" },
+        "page-weathering":{ name: "🏺 电子包浆", path: "/weathering" },
+        "page-merge":     { name: "🧩 图片处理", path: "/processing" }
+    };
+
     function switchPage(targetId) {
         tabPages.forEach(p => p.classList.remove("active"));
         const page = document.getElementById(targetId);
         if (page) page.classList.add("active");
 
-        // 非主 Tab 页（拆解动图 / 图片混沌）由「更多功能」菜单承载
+        // 非主 Tab 页（更多功能子功能）由「更多功能」菜单承载：
+        // 主 Tab 栏换成「功能名 + 回到主页」
+        const isFeature = !!FEATURE_PAGES[targetId];
+        document.getElementById("main-tab-bar").hidden = isFeature;
+        document.getElementById("feature-tab-bar").hidden = !isFeature;
+        if (isFeature) {
+            document.getElementById("txt-feature-name").textContent = FEATURE_PAGES[targetId].name;
+        }
+
         tabBtns.forEach(b => {
             b.classList.toggle("active", b.getAttribute("data-tab") === targetId);
         });
@@ -47,6 +64,23 @@ document.addEventListener("DOMContentLoaded", () => {
     tabBtns.forEach(btn => {
         btn.addEventListener("click", () => switchPage(btn.getAttribute("data-tab")));
     });
+
+    // 功能模式「回到主页」：回默认页；带路径访问时顺带清掉地址栏路径
+    document.getElementById("btn-feature-home").addEventListener("click", () => {
+        if (location.protocol.startsWith("http") && FEATURE_PAGES && Object.values(FEATURE_PAGES).some(f => f.path === location.pathname)) {
+            history.replaceState(null, "", "/");
+        }
+        switchPage("page-disguise");
+    });
+
+    // 1.0.1 直达路径：启动时按 URL 路径进入对应功能（/split /chaos /clean /weathering）
+    // 线上由 Cloudflare Pages 的 _redirects 把这些路径重写到 index.html；本地 file:// 无路径概念不受影响
+    (function routeByPath() {
+        if (!location.protocol.startsWith("http")) return;
+        const p = location.pathname.replace(/\/+$/, "") || "/";
+        const hit = Object.entries(FEATURE_PAGES).find(([, f]) => f.path === p);
+        if (hit) switchPage(hit[0]);
+    })();
 
     // 1.1 更多功能菜单
     const btnMenuMore = document.getElementById("btn-menu-more");
@@ -1724,6 +1758,244 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     });
 
+    // 8.1.1 信息查看：EXIF/GPS/文本块 本地解析（与「信息清除」共用上传框）
+    // JPEG APP1 与 PNG eXIf 里都是 TIFF 结构，统一按 IFD 遍历解析。
+    const META_TAG_NAMES = {
+        0x010F: "相机制造商", 0x0110: "相机型号", 0x0112: "拍摄方向",
+        0x0131: "软件", 0x0132: "修改时间", 0x013B: "作者",
+        0x8298: "版权", 0x829A: "曝光时间", 0x829D: "光圈值 F",
+        0x8827: "ISO", 0x9000: "Exif 版本", 0x9003: "拍摄时间",
+        0x9004: "数字化时间", 0x9201: "快门速度", 0x9202: "光圈",
+        0x9204: "曝光补偿", 0x9207: "测光模式", 0x9209: "闪光灯",
+        0x920A: "焦距", 0x9286: "用户注释",
+        0xA002: "图像宽度", 0xA003: "图像高度",
+        0xA432: "镜头参数", 0xA433: "镜头制造商", 0xA434: "镜头型号",
+        0xA430: "相机所有者", 0xA431: "相机序列号",
+        0x8769: "ExifIFD", 0x8825: "GPSIFD"
+    };
+    const GPS_TAG_NAMES = {
+        0x0000: "GPS 版本", 0x0001: "纬度半球", 0x0002: "纬度",
+        0x0003: "经度半球", 0x0004: "经度", 0x0005: "海拔基准",
+        0x0006: "海拔(米)", 0x0007: "时间戳", 0x000B: "GPS 日期",
+        0x0011: "拍摄朝向"
+    };
+    // 展示时值得标红提醒的敏感字段
+    const META_DANGER_KEYS = ["纬度", "经度", "拍摄时间", "数字化时间", "相机所有者", "作者", "相机序列号", "纬度半球", "经度半球", "海拔(米)", "GPS 日期", "拍摄朝向", "时间戳"];
+
+    function metaReadU16(v, o, le) { return le ? (v[o] | (v[o + 1] << 8)) : ((v[o] << 8) | v[o + 1]); }
+    function metaReadU32(v, o, le) { return le ? (v[o] | (v[o + 1] << 8) | (v[o + 2] << 16) | (v[o + 3] << 24)) >>> 0 : (((v[o] << 24) | (v[o + 1] << 16) | (v[o + 2] << 8) | v[o + 3]) >>> 0); }
+
+    // 解析 TIFF（EXIF 头后就是 IFD0），返回 { exif: [[k,v]], gps: [[k,v]], gpsCoord: {lat,lon}|null }
+    function parseTiffExif(tiff, isBE) {
+        const exifRows = [], gpsRows = [];
+        let gpsCoord = null;
+        try {
+            const ifd0Off = metaReadU32(tiff, 4, !isBE);
+            const readIFD = (off, target, tagNames) => {
+                if (off + 2 > tiff.length) return 0;
+                const count = metaReadU16(tiff, off, !isBE);
+                for (let i = 0; i < count; i++) {
+                    const e = off + 2 + i * 12;
+                    if (e + 12 > tiff.length) break;
+                    const tag = metaReadU16(tiff, e, !isBE);
+                    const type = metaReadU16(tiff, e + 2, !isBE);
+                    const num = metaReadU32(tiff, e + 4, !isBE);
+                    const valOff = num * (META_TYPE_SIZE[type] || 0) > 4 ? metaReadU32(tiff, e + 8, !isBE) : e + 8;
+                    const val = metaReadValue(tiff, type, num, valOff, !isBE);
+                    if (val === null) continue;
+                    const name = tagNames[tag] || ("0x" + tag.toString(16).toUpperCase());
+                    target.push([name, val]);
+                }
+                return count;
+            };
+
+            // IFD0：先收集普通字段，再跳转 ExifIFD / GPSIFD
+            const ifd0 = [];
+            readIFD(ifd0Off, ifd0, META_TAG_NAMES);
+            let exifIfdOff = 0, gpsIfdOff = 0;
+            for (const [k, v] of ifd0) {
+                if (k === "ExifIFD") exifIfdOff = parseInt(v) || 0;
+                else if (k === "GPSIFD") gpsIfdOff = parseInt(v) || 0;
+                else exifRows.push([k, v]);
+            }
+            if (exifIfdOff) readIFD(exifIfdOff, exifRows, META_TAG_NAMES);
+            if (gpsIfdOff) {
+                readIFD(gpsIfdOff, gpsRows, GPS_TAG_NAMES);
+                gpsCoord = metaGpsToCoord(gpsRows);
+            }
+        } catch (e) { /* 解析失败按无 EXIF 处理 */ }
+        return { exif: exifRows, gps: gpsRows, gpsCoord };
+    }
+
+    const META_TYPE_SIZE = { 1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 7: 1, 9: 4, 10: 8 };
+
+    function metaReadValue(v, type, num, off, le) {
+        try {
+            if (type === 2) {   // ASCII
+                let s = "";
+                for (let i = 0; i < num && off + i < v.length; i++) {
+                    const c = v[off + i];
+                    if (c === 0) break;
+                    s += String.fromCharCode(c);
+                }
+                return s.trim() || null;
+            }
+            if (type === 3) return num === 1 ? metaReadU16(v, off, le) : (num <= 4 ? Array.from({ length: num }, (_, i) => metaReadU16(v, off + i * 2, le)).join(", ") : null);
+            if (type === 4) return num === 1 ? metaReadU32(v, off, le) : (num <= 4 ? Array.from({ length: num }, (_, i) => metaReadU32(v, off + i * 4, le)).join(", ") : null);
+            if (type === 5 && num >= 1 && num <= 4) {   // RATIONAL（GPS 度分秒、海拔等）
+                const vals = [];
+                for (let i = 0; i < num; i++) {
+                    const n = metaReadU32(v, off + i * 8, le);
+                    const d = metaReadU32(v, off + i * 8 + 4, le);
+                    vals.push(d === 0 ? 0 : n / d);
+                }
+                return num === 1 ? vals[0] : vals.join(", ");
+            }
+            return null;
+        } catch (e) { return null; }
+    }
+
+    // GPS 度分秒（3 个 RATIONAL）→ 十进制经纬度
+    function metaGpsToCoord(rows) {
+        const get = name => { const r = rows.find(x => x[0] === name); return r ? r[1] : null; };
+        const lat = get("纬度"), lon = get("经度");
+        if (typeof lat !== "string" || typeof lon !== "string") return null;
+        const la = lat.split(",").map(Number), lo = lon.split(",").map(Number);
+        if (la.length !== 3 || lo.length !== 3 || la.some(isNaN) || lo.some(isNaN)) return null;
+        let dLat = la[0] + la[1] / 60 + la[2] / 3600;
+        let dLon = lo[0] + lo[1] / 60 + lo[2] / 3600;
+        if (get("纬度半球") === "S") dLat = -dLat;
+        if (get("经度半球") === "W") dLon = -dLon;
+        if (Math.abs(dLat) > 90 || Math.abs(dLon) > 180) return null;
+        return { lat: dLat.toFixed(6), lon: dLon.toFixed(6) };
+    }
+
+    // 从文件字节提取 EXIF（JPEG APP1 / PNG eXIf）并解析
+    async function parseImageMeta(file) {
+        const raw = new Uint8Array(await file.arrayBuffer());
+        let tiff = null, isBE = false;
+        if (raw[0] === 0xFF && raw[1] === 0xD8) {
+            // JPEG：找 APP1 "Exif\0\0"
+            let pos = 2;
+            while (pos + 4 <= raw.length) {
+                const len = (raw[pos + 2] << 8) | raw[pos + 3];
+                if (raw[pos] === 0xFF && raw[pos + 1] === 0xE1 && len >= 8 &&
+                    raw[pos + 4] === 0x45 && raw[pos + 5] === 0x78 && raw[pos + 6] === 0x69 && raw[pos + 7] === 0x66) {
+                    tiff = raw.slice(pos + 10);   // 跳过 "Exif\0\0"
+                    break;
+                }
+                if (raw[pos] === 0xFF && raw[pos + 1] === 0xDA) break;
+                if (len <= 0) break;
+                pos += 2 + len;
+            }
+        } else if (raw[0] === 0x89 && raw[1] === 0x50) {
+            const chunks = ApngCodec.parseChunks(raw);
+            const exifChunk = chunks.find(c => c.type === "eXIf");
+            if (exifChunk) tiff = exifChunk.payload;
+        }
+        if (!tiff || tiff.length < 8) return { exif: [], gps: [], gpsCoord: null, textChunks: extractMetaChunks(raw) };
+
+        const isLE = tiff[0] === 0x49 && tiff[1] === 0x49;
+        isBE = tiff[0] === 0x4D && tiff[1] === 0x4D;
+        if (!isLE && !isBE) return { exif: [], gps: [], gpsCoord: null, textChunks: extractMetaChunks(raw) };
+
+        const parsed = parseTiffExif(tiff, isBE);
+        parsed.textChunks = extractMetaChunks(raw).filter(c => c.type !== "eXIf");
+        return parsed;
+    }
+
+    // 渲染单张图片的解析结果
+    function renderMetaView(file, meta) {
+        const wrap = document.createElement("div");
+        wrap.className = "meta-view-file";
+
+        const hasContent = meta.exif.length > 0 || meta.gps.length > 0 || meta.textChunks.length > 0;
+        const pill = document.createElement("span");
+        pill.className = "file-pill" + (hasContent ? " warn" : "");
+        pill.textContent = hasContent ? "含隐藏信息" : "未发现隐藏信息";
+        const name = document.createElement("span");
+        name.textContent = file.name;
+        name.style.overflow = "hidden";
+        name.style.textOverflow = "ellipsis";
+        name.style.whiteSpace = "nowrap";
+        wrap.appendChild(pill);
+        wrap.appendChild(name);
+        const out = [wrap];
+
+        const mkTable = (title, rows) => {
+            if (rows.length === 0) return null;
+            const holder = document.createElement("div");
+            let html = `<table class="meta-table"><tr><th style="width:96px;">${title}</th><th>内容</th></tr>`;
+            for (const [k, v] of rows) {
+                const danger = META_DANGER_KEYS.includes(k) ? " class=\"danger\"" : "";
+                html += `<tr${danger}><td class="meta-k">${k}</td><td class="meta-v">${escapeHtml(String(v))}</td></tr>`;
+            }
+            html += "</table>";
+            holder.innerHTML = html;
+            return holder;
+        };
+
+        if (meta.gpsCoord) {
+            const { lat, lon } = meta.gpsCoord;
+            const p = document.createElement("div");
+            p.className = "meta-note";
+            p.innerHTML = `📍 拍摄地点约在 <a class="meta-gps-link" href="https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=17/${lat}/${lon}" target="_blank" rel="noopener">${lat}, ${lon}</a>（点击在新标签页打开地图，浏览器不会上传任何数据）`;
+            out.push(p);
+        }
+        const t1 = mkTable("位置 GPS", meta.gps);
+        if (t1) out.push(t1);
+        const t2 = mkTable("拍摄参数", meta.exif);
+        if (t2) out.push(t2);
+
+        // 文本块（tEXt/iTXt/zTXt，NovelAI 参数就在这里）
+        const textRows = [];
+        for (const c of meta.textChunks) {
+            let val = "";
+            try {
+                if (c.type === "tEXt") {
+                    const z = c.payload.indexOf(0);
+                    val = new TextDecoder().decode(c.payload.slice(0, z)) + " = " +
+                          new TextDecoder().decode(c.payload.slice(z + 1, Math.min(c.payload.length, z + 1 + 800)));
+                } else {
+                    val = `[${c.type}] ${c.payload.length} 字节`;
+                }
+            } catch (e) { val = `[${c.type}] ${c.payload.length} 字节`; }
+            textRows.push([c.type, val]);
+        }
+        const t3 = mkTable("文本块", textRows);
+        if (t3) out.push(t3);
+
+        if (!hasContent) {
+            const n = document.createElement("div");
+            n.className = "meta-note";
+            n.textContent = "未解析到 EXIF / GPS / 文本块。可能原因：聊天软件转发时已剥离、截图本身不含、或为不支持的格式（如 HEIC）。";
+            out.push(n);
+        }
+        return out;
+    }
+
+    // 选图后刷新「信息查看」
+    async function refreshMetaView(files) {
+        const box = document.getElementById("meta-view-result");
+        box.innerHTML = "";
+        for (const f of files.slice(0, 20)) {   // 最多展示 20 张，避免卡顿
+            try {
+                const meta = await parseImageMeta(f);
+                renderMetaView(f, meta).forEach(el => box.appendChild(el));
+            } catch (e) { /* 单张失败跳过 */ }
+        }
+    }
+
+    // 挂到现有上传流程：clean 的 change 事件里同步刷新（在原监听器之后追加）
+    inputClean.addEventListener("change", () => {
+        const files = inputClean.files ? Array.from(inputClean.files) : [];
+        if (files.length > 0) refreshMetaView(files);
+    });
+
+    function escapeHtml(s) {
+        return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+
     // 8.2 电子包浆（复刻 Electrical Weathering v4，纯 Canvas 实现）
     // 管线：可选水印 → 噪点(高斯混合) → 泛绿 → 压缩/缩放（官窑与民窑步骤顺序不同）
     const boxEW = document.getElementById("box-ew-upload");
@@ -2078,6 +2350,385 @@ document.addEventListener("DOMContentLoaded", () => {
         const el = document.getElementById("img-ew-out");
         if (el && el.getAttribute("src") && !el.hidden) {
             showModal(el.src);
+        }
+    });
+
+    // 8.3 图片处理：多图竖拼 / 横拼（拖拽排序 + 实时预览 + 圆角 + 最小/最大化对齐）
+    const boxMerge = document.getElementById("box-merge-upload");
+    const inputMerge = document.getElementById("input-merge-image");
+    let mergeFiles = [];        // [{ file, img, w, h }] 按拼接顺序
+    let mergeDirection = "v";   // v=竖拼 h=横拼
+    let mergeBg = "transparent";
+    let mergeUnify = "max";     // none=原始尺寸 min=最小化 max=最大化（默认最大化）
+    let mergeRadiusMode = "each"; // each=每张单图圆角 whole=合成后整图圆角
+    let mergeResultBlob = null; // 保存用的最终 blob
+    let mergeResultUrl = null;
+
+    boxMerge.addEventListener("click", () => inputMerge.click());
+    enableDropUpload(boxMerge, inputMerge);
+
+    document.querySelectorAll("#merge-direction-group .segmented-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            document.querySelectorAll("#merge-direction-group .segmented-btn").forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+            mergeDirection = btn.getAttribute("data-dir");
+            scheduleMergePreview();
+        });
+    });
+
+    document.querySelectorAll("#merge-unify-group .segmented-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            document.querySelectorAll("#merge-unify-group .segmented-btn").forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+            mergeUnify = btn.getAttribute("data-unify");
+            scheduleMergePreview();
+        });
+    });
+
+    document.querySelectorAll("#merge-bg-group .merge-bg-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            document.querySelectorAll("#merge-bg-group .merge-bg-btn").forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+            mergeBg = btn.getAttribute("data-bg");
+            scheduleMergePreview();
+        });
+    });
+
+    document.querySelectorAll("#merge-radius-mode-group .segmented-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            document.querySelectorAll("#merge-radius-mode-group .segmented-btn").forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+            mergeRadiusMode = btn.getAttribute("data-radius-mode");
+            scheduleMergePreview();
+        });
+    });
+
+    const mergeSliderGap = document.getElementById("merge-slider-gap");
+    const mergeSliderMargin = document.getElementById("merge-slider-margin");
+    const mergeSliderRadius = document.getElementById("merge-slider-radius");
+    function refreshMergeVals() {
+        document.getElementById("merge-val-gap").textContent = mergeSliderGap.value + "px";
+        document.getElementById("merge-val-margin").textContent = mergeSliderMargin.value + "px";
+        document.getElementById("merge-val-radius").textContent = mergeSliderRadius.value + "px";
+    }
+    [mergeSliderGap, mergeSliderMargin, mergeSliderRadius].forEach(s => {
+        s.addEventListener("input", () => { refreshMergeVals(); scheduleMergePreview(); });
+    });
+    refreshMergeVals();
+
+    // 渲染已选文件列表（拖拽手柄 + 序号 + 文件名 + 上移/下移/删除）
+    let dragSrcIndex = -1;
+    function renderMergeList() {
+        const listEl = document.getElementById("merge-file-list");
+        listEl.innerHTML = "";
+        mergeFiles.forEach((item, i) => {
+            const row = document.createElement("div");
+            row.className = "merge-file-item";
+            row.draggable = true;
+            row.dataset.index = String(i);
+
+            // 拖拽排序（HTML5 DnD，桌面鼠标与移动端长按均触发）
+            row.addEventListener("dragstart", (e) => {
+                dragSrcIndex = i;
+                row.classList.add("dragging");
+                try { e.dataTransfer.setData("text/plain", String(i)); } catch (err) {}
+                e.dataTransfer.effectAllowed = "move";
+            });
+            row.addEventListener("dragend", () => {
+                row.classList.remove("dragging");
+                listEl.querySelectorAll(".merge-file-item").forEach(r => r.classList.remove("drag-over-top", "drag-over-bottom"));
+                dragSrcIndex = -1;
+            });
+            row.addEventListener("dragover", (e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+                const rect = row.getBoundingClientRect();
+                const before = (e.clientY - rect.top) < rect.height / 2;
+                row.classList.toggle("drag-over-top", before);
+                row.classList.toggle("drag-over-bottom", !before);
+            });
+            row.addEventListener("dragleave", () => row.classList.remove("drag-over-top", "drag-over-bottom"));
+            row.addEventListener("drop", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const rect = row.getBoundingClientRect();
+                const before = (e.clientY - rect.top) < rect.height / 2;
+                row.classList.remove("drag-over-top", "drag-over-bottom");
+                let src = dragSrcIndex;
+                if (src < 0) {
+                    const raw = e.dataTransfer.getData("text/plain");
+                    if (raw === "" || isNaN(parseInt(raw, 10))) return;
+                    src = parseInt(raw, 10);
+                }
+                if (src < 0 || src >= mergeFiles.length) return;
+                let dst = before ? i : i + 1;
+                if (src === dst || src === dst - 1) return;   // 位置没变
+                const [moved] = mergeFiles.splice(src, 1);
+                if (dst > src) dst--;
+                mergeFiles.splice(dst, 0, moved);
+                renderMergeList();
+                scheduleMergePreview();
+            });
+
+            const handle = document.createElement("span");
+            handle.className = "merge-drag-handle";
+            handle.textContent = "⠿";
+            handle.title = "拖拽调整顺序";
+            const order = document.createElement("span");
+            order.className = "merge-file-order";
+            order.textContent = String(i + 1);
+            const name = document.createElement("span");
+            name.className = "merge-file-name";
+            name.textContent = `${item.file.name} (${item.w}x${item.h})`;
+            const updown = document.createElement("span");
+            updown.className = "merge-file-updown";
+            const upBtn = document.createElement("button");
+            upBtn.textContent = "▲";
+            upBtn.title = "上移";
+            upBtn.disabled = i === 0;
+            upBtn.addEventListener("click", () => {
+                if (i === 0) return;
+                [mergeFiles[i - 1], mergeFiles[i]] = [mergeFiles[i], mergeFiles[i - 1]];
+                renderMergeList();
+                scheduleMergePreview();
+            });
+            const downBtn = document.createElement("button");
+            downBtn.textContent = "▼";
+            downBtn.title = "下移";
+            downBtn.disabled = i === mergeFiles.length - 1;
+            downBtn.addEventListener("click", () => {
+                if (i === mergeFiles.length - 1) return;
+                [mergeFiles[i + 1], mergeFiles[i]] = [mergeFiles[i], mergeFiles[i + 1]];
+                renderMergeList();
+                scheduleMergePreview();
+            });
+            updown.appendChild(upBtn);
+            updown.appendChild(downBtn);
+            const del = document.createElement("button");
+            del.className = "merge-file-del";
+            del.textContent = "✕";
+            del.title = "移除";
+            del.addEventListener("click", () => {
+                mergeFiles.splice(i, 1);
+                renderMergeList();
+                refreshMergeBadge();
+                scheduleMergePreview();
+            });
+            row.appendChild(handle);
+            row.appendChild(order);
+            row.appendChild(name);
+            row.appendChild(updown);
+            row.appendChild(del);
+            listEl.appendChild(row);
+        });
+    }
+
+    function refreshMergeBadge() {
+        const badge = document.getElementById("badge-merge-info");
+        const preview = document.getElementById("img-merge-preview");
+        if (mergeFiles.length === 0) {
+            badge.style.display = "none";
+            preview.removeAttribute("src");
+            preview.style.display = "none";
+            boxMerge.querySelector(".upload-icon").style.display = "";
+            boxMerge.querySelector(".upload-text").style.display = "";
+            boxMerge.querySelector(".upload-hint").style.display = "";
+            return;
+        }
+        badge.style.display = "block";
+        badge.style.color = "";
+        badge.textContent = mergeFiles.length === 1
+            ? `已选 1 张图片（再选几张即可拼接）`
+            : `已选 ${mergeFiles.length} 张图片，按列表顺序${mergeDirection === "v" ? "竖向" : "横向"}拼接`;
+        preview.src = mergeFiles[0].img.src;
+        preview.style.display = "block";
+        boxMerge.querySelector(".upload-icon").style.display = "none";
+        boxMerge.querySelector(".upload-text").style.display = "none";
+        boxMerge.querySelector(".upload-hint").style.display = "none";
+    }
+
+    inputMerge.addEventListener("change", async (e) => {
+        const files = e.target.files ? Array.from(e.target.files) : [];
+        if (files.length === 0) return;
+        inputMerge.value = "";
+
+        let added = 0;
+        for (const file of files) {
+            try {
+                const img = await loadImage(URL.createObjectURL(file));
+                const w = img.naturalWidth || img.width;
+                const h = img.naturalHeight || img.height;
+                if (!w || !h) continue;
+                mergeFiles.push({ file, img, w, h });
+                added++;
+            } catch (err) { /* 单张失败跳过 */ }
+        }
+        if (added === 0) {
+            alert("未能读取到有效图片");
+            return;
+        }
+        renderMergeList();
+        refreshMergeBadge();
+        scheduleMergePreview();
+    });
+
+    // ---- 拼接核心：返回 { canvas, sizes } ----
+    function buildMergeCanvas() {
+        const gap = parseInt(mergeSliderGap.value, 10);
+        const margin = parseInt(mergeSliderMargin.value, 10);
+        const radius = parseInt(mergeSliderRadius.value, 10);
+        const vertical = mergeDirection === "v";
+
+        // 基准：none=不统一；min=最小宽度/高度；max=最大宽度/高度
+        let base = null;
+        if (mergeUnify !== "none") {
+            const dims = mergeFiles.map(item => vertical ? item.w : item.h);
+            base = mergeUnify === "min" ? Math.min(...dims) : Math.max(...dims);
+        }
+
+        const sizes = mergeFiles.map(item => {
+            if (base === null) return { w: item.w, h: item.h, img: item.img };
+            if (vertical) {
+                const s = base / item.w;
+                return { w: Math.round(base), h: Math.max(1, Math.round(item.h * s)), img: item.img };
+            }
+            const s = base / item.h;
+            return { w: Math.max(1, Math.round(item.w * s)), h: Math.round(base), img: item.img };
+        });
+
+        let cw, ch;
+        if (vertical) {
+            cw = margin * 2 + Math.max(...sizes.map(s => s.w));
+            ch = margin * 2 + sizes.reduce((s, x) => s + x.h, 0) + gap * (sizes.length - 1);
+        } else {
+            cw = margin * 2 + sizes.reduce((s, x) => s + x.w, 0) + gap * (sizes.length - 1);
+            ch = margin * 2 + Math.max(...sizes.map(s => s.h));
+        }
+
+        const canvas = document.createElement("canvas");
+        canvas.width = cw;
+        canvas.height = ch;
+        const ctx = canvas.getContext("2d");
+        if (mergeBg !== "transparent") {
+            ctx.fillStyle = mergeBg;
+            ctx.fillRect(0, 0, cw, ch);
+        }
+
+        // 单图圆角：仅 each 模式生效（whole 模式在最后统一裁剪整图）
+        const perImageRadius = mergeRadiusMode === "each" ? radius : 0;
+        const drawRounded = (img, x, y, w, h) => {
+            if (perImageRadius <= 0) {
+                ctx.drawImage(img, x, y, w, h);
+                return;
+            }
+            const r = Math.min(perImageRadius, w / 2, h / 2);
+            ctx.save();
+            ctx.beginPath();
+            if (ctx.roundRect) ctx.roundRect(x, y, w, h, r);
+            else ctx.rect(x, y, w, h);
+            ctx.clip();
+            ctx.drawImage(img, x, y, w, h);
+            ctx.restore();
+        };
+
+        let pos = margin;
+        for (const s of sizes) {
+            if (vertical) {
+                const x = margin + Math.round((cw - margin * 2 - s.w) / 2);   // 居中
+                drawRounded(s.img, x, pos, s.w, s.h);
+                pos += s.h + gap;
+            } else {
+                const y = margin + Math.round((ch - margin * 2 - s.h) / 2);
+                drawRounded(s.img, pos, y, s.w, s.h);
+                pos += s.w + gap;
+            }
+        }
+        // 整图圆角模式：先在离屏画布正常拼好，再一次性裁剪出整图圆角
+        if (mergeRadiusMode === "whole" && radius > 0) {
+            const r = Math.min(radius, cw / 2, ch / 2);
+            const clipped = document.createElement("canvas");
+            clipped.width = cw;
+            clipped.height = ch;
+            const cctx = clipped.getContext("2d");
+            cctx.beginPath();
+            if (cctx.roundRect) cctx.roundRect(0, 0, cw, ch, r);
+            else cctx.rect(0, 0, cw, ch);
+            cctx.clip();
+            cctx.drawImage(canvas, 0, 0);
+            return { canvas: clipped, cw, ch };
+        }
+        return { canvas, cw, ch };
+    }
+
+    // 实时预览：直接把拼接结果绘制到页面上的预览 canvas（无图片编码，GPU 合成），
+    // rAF 合帧——滑条拖动过程中每帧重绘，松手也无延迟。保存时才做 PNG 编码。
+    let mergePreviewDirty = false;
+    let mergePreviewRaf = 0;
+    const mergePreviewCanvas = document.getElementById("canvas-merge-out");
+
+    function renderMergePreviewNow() {
+        mergePreviewRaf = 0;
+        if (!mergePreviewDirty) return;
+        mergePreviewDirty = false;
+        if (mergeFiles.length < 2) {
+            hideMergeResult();
+            return;
+        }
+        try {
+            const { canvas, cw, ch } = buildMergeCanvas();
+            // 预览 canvas 尺寸设为成品尺寸（CSS 负责缩放显示），直接像素拷贝
+            mergePreviewCanvas.width = cw;
+            mergePreviewCanvas.height = ch;
+            mergePreviewCanvas.getContext("2d").drawImage(canvas, 0, 0);
+            mergePreviewCanvas.hidden = false;
+            document.getElementById("merge-empty-out").hidden = true;
+            document.getElementById("card-merge-result").style.display = "block";
+            const dirText = mergeDirection === "v" ? "竖向" : "横向";
+            const unifyText = mergeUnify === "min" ? "最小化对齐" : (mergeUnify === "max" ? "最大化对齐" : "原始尺寸");
+            document.getElementById("txt-merge-summary").textContent =
+                `${dirText} ${mergeFiles.length} 张 | ${unifyText} | 成品 ${cw}x${ch}`;
+        } catch (err) { /* 预览失败静默，保存时再报 */ }
+    }
+
+    function scheduleMergePreview() {
+        mergePreviewDirty = true;
+        if (!mergePreviewRaf) {
+            mergePreviewRaf = requestAnimationFrame(renderMergePreviewNow);
+        }
+    }
+
+    function hideMergeResult() {
+        mergePreviewCanvas.hidden = true;
+        document.getElementById("merge-empty-out").hidden = false;
+        document.getElementById("card-merge-result").style.display = "none";
+    }
+
+    // 保存：点按钮时才生成最终高清 PNG
+    document.getElementById("btn-merge-download").addEventListener("click", () => {
+        if (mergeFiles.length < 2) {
+            alert("请至少选择 2 张图片进行拼接");
+            return;
+        }
+        try {
+            const { canvas } = buildMergeCanvas();
+            canvas.toBlob(blob => {
+                if (!blob) {
+                    alert("拼接导出失败");
+                    return;
+                }
+                if (mergeResultUrl) URL.revokeObjectURL(mergeResultUrl);
+                mergeResultBlob = blob;
+                mergeResultUrl = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14);
+                a.href = mergeResultUrl;
+                a.download = `merged_${stamp}.png`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+            }, "image/png");
+        } catch (err) {
+            alert("拼接失败: " + err.message);
         }
     });
 

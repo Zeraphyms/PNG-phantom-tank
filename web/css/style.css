@@ -384,6 +384,205 @@ html.dark .tab-bar {
   box-shadow: 0 4px 12px var(--primary-ring);
 }
 
+/* 功能模式条：选中「更多功能」里的项时替代主 Tab 栏 */
+.tab-bar[hidden] { display: none; }
+
+.feature-bar {
+  align-items: center;
+  gap: 8px;
+  padding: 4px 4px 4px 14px;
+}
+
+.feature-bar-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 13.5px;
+  font-weight: 800;
+  color: var(--primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: center;
+}
+
+.feature-home-btn {
+  flex: 0 0 auto;
+  background: var(--glass);
+  -webkit-backdrop-filter: saturate(180%) blur(var(--glass-blur));
+  backdrop-filter: saturate(180%) blur(var(--glass-blur));
+  border: 1.5px solid var(--border-strong);
+  padding: 8px 14px;
+}
+
+.feature-home-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: var(--primary-soft);
+}
+
+/* 居中视觉配重：左侧占位与右侧按钮等宽，功能名真正落在正中 */
+.feature-bar-spacer {
+  flex: 0 0 auto;
+  width: 104px;
+}
+
+/* ===== 图片处理（拼接） ===== */
+.merge-file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.merge-file-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+  background: var(--glass);
+  -webkit-backdrop-filter: saturate(180%) blur(var(--glass-blur));
+  backdrop-filter: saturate(180%) blur(var(--glass-blur));
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 7px 10px;
+}
+
+.merge-file-item .merge-file-order {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.merge-file-item .merge-file-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.merge-file-item .merge-file-del {
+  flex: 0 0 auto;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 15px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 6px;
+  line-height: 1;
+}
+
+.merge-file-item .merge-file-del:hover { color: var(--danger); background: var(--danger-soft); }
+
+/* 拖拽排序状态 */
+.merge-file-item.dragging {
+  opacity: .45;
+  border-style: dashed;
+}
+
+.merge-file-item.drag-over-top { box-shadow: 0 -2px 0 0 var(--primary); }
+.merge-file-item.drag-over-bottom { box-shadow: 0 2px 0 0 var(--primary); }
+
+.merge-file-item .merge-drag-handle {
+  flex: 0 0 auto;
+  cursor: grab;
+  color: var(--text-faint);
+  font-size: 13px;
+  padding: 4px 2px;
+  user-select: none;
+  line-height: 1;
+}
+
+.merge-file-item .merge-drag-handle:active { cursor: grabbing; }
+
+.merge-file-item .merge-file-updown {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.merge-file-item .merge-file-updown button {
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 10px;
+  cursor: pointer;
+  padding: 1px 5px;
+  border-radius: 4px;
+  line-height: 1;
+}
+
+.merge-file-item .merge-file-updown button:hover { color: var(--primary); background: var(--primary-soft); }
+
+.merge-bg-row {
+  flex: 1;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.merge-bg-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  border: 2px solid var(--border-strong);
+  cursor: pointer;
+  padding: 0;
+  transition: all .15s ease;
+}
+
+.merge-bg-btn.active {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-ring);
+}
+
+/* 大图实时预览：直接绘制到 canvas，无编码开销，滑动丝滑 */
+.merge-preview-frame {
+  position: relative;
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--glass);
+  -webkit-backdrop-filter: saturate(180%) blur(var(--glass-blur));
+  backdrop-filter: saturate(180%) blur(var(--glass-blur));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  min-height: 200px;
+  /* 透明背景时露出棋盘格 */
+  background-image: linear-gradient(45deg, #e8e8e8 25%, transparent 25%, transparent 75%, #e8e8e8 75%),
+                    linear-gradient(45deg, #e8e8e8 25%, transparent 25%, transparent 75%, #e8e8e8 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 8px 8px;
+}
+
+.merge-preview-canvas {
+  display: block;
+  max-width: 100%;
+  max-height: 70vh;
+  width: auto;
+  height: auto;
+}
+
+/* 圆角应用对象切换（单图/整图）：紧凑版分段按钮 */
+.merge-radius-mode {
+  flex: 0 0 auto;
+  scale: 0.82;
+  transform-origin: right center;
+}
+
 /* ===== 内容区 ===== */
 .content-area {
   flex: 1;
@@ -744,7 +943,9 @@ html.dark .cover-row {
   height: 30px;
   border-radius: 999px;
   border: 1px solid var(--border);
-  background: var(--surface);
+  background: var(--glass);
+  -webkit-backdrop-filter: saturate(180%) blur(var(--glass-blur));
+  backdrop-filter: saturate(180%) blur(var(--glass-blur));
   color: var(--text-muted);
   cursor: pointer;
   transition: background-color .16s ease, color .16s ease, transform .16s ease;
@@ -1241,6 +1442,99 @@ html.dark .cover-row {
   padding: 0 14px;
   font-size: 13px;
   white-space: nowrap;
+}
+
+/* ===== 信息查看（EXIF） ===== */
+.meta-view-empty {
+  font-size: 12.5px;
+  color: var(--text-faint);
+  padding: 14px 4px;
+}
+
+.meta-view-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.meta-view-file .file-pill {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--primary);
+  background: var(--primary-soft);
+  border: 1px solid color-mix(in srgb, var(--primary) 22%, transparent);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.meta-view-file .file-pill.warn {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 35%, transparent);
+}
+
+.meta-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  margin-bottom: 4px;
+}
+
+.meta-table th {
+  text-align: left;
+  font-size: 11px;
+  letter-spacing: .4px;
+  color: var(--text-faint);
+  font-weight: 800;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.meta-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+  vertical-align: top;
+}
+
+.meta-table td.meta-k {
+  color: var(--text);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.meta-table td.meta-v {
+  word-break: break-all;
+}
+
+.meta-table tr.danger td {
+  color: var(--danger);
+}
+
+.meta-table tr.danger td.meta-k,
+.meta-table tr.danger td.meta-v {
+  font-weight: 700;
+}
+
+.meta-gps-link {
+  color: var(--primary);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.meta-gps-link:hover { text-decoration: underline; }
+
+.meta-note {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  margin-top: 8px;
+  line-height: 1.6;
 }
 
 /* ===== 底部信息 ===== */
