@@ -400,20 +400,29 @@ html.dark .tab-bar {
 .feature-bar {
   align-items: center;
   gap: 8px;
-  padding: 4px 14px;
+  /* 与主页 tab-bar 一致的 4px 内距：子胶囊 flex:1 均分后严格等宽且贴边 */
+  padding: 4px;
 }
 
 .feature-bar-title {
   flex: 1;
   min-width: 0;
-  font-size: 13.5px;
-  font-weight: 800;
+  /* 高度对齐主页 tab-btn（9px×2 padding + 13px 文字 ≈ 35px） */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 35px;
+  font-size: 13px;
+  font-weight: 700;
   color: var(--primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   text-align: center;
 }
+
+/* display:flex 会覆盖 hidden（hidden 坑第四次），显式声明 */
+.feature-bar-title[hidden] { display: none; }
 
 /* emoji 不参与居中：挂在文字左侧（绝对定位），文字本体真正居中 */
 .feature-name-wrap {
@@ -427,25 +436,40 @@ html.dark .tab-bar {
   margin-right: 5px;
 }
 
-/* 图片处理页：功能名位置换成 拼接/切图 子功能切换 */
+/* 图片处理页：五个子功能切换。
+   关键：segmented 基类自带玻璃底+backdrop-filter+border（图二的内层条来源），
+   必须全部清掉，让按钮直接坐在 feature-tab-bar 的唯一一层毛玻璃上。 */
 .feature-sub-tabs {
   flex: 1;
   min-width: 0;
   justify-content: center;
-  background: var(--surface-soft);
-  border-radius: 999px;
-  padding: 3px;
-  gap: 2px;
+  /* .segmented 基类在文件更后方定义，同级覆盖会输——必须 !important */
+  background: transparent !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  margin-top: 0 !important;
+  gap: 0 !important;
 }
 
 /* .segmented 是 grid 布局，会覆盖 hidden 的 display:none，必须显式声明 */
 .feature-sub-tabs[hidden] { display: none; }
 
 .feature-sub-tabs .segmented-btn {
-  flex: 0 0 auto;
-  padding: 6px 14px;
-  font-size: 12.5px;
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 9px 6px;
+  font-size: 13px;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 999px;
 }
+
+/* 选中态 = 主 Tab 同款主色胶囊（feature-bar padding 已与主页一致，
+   flex 均分即严格等宽且首尾贴边，无需任何负 margin 补偿） */
 
 /* ===== 图片处理（拼接） ===== */
 .merge-file-list {
