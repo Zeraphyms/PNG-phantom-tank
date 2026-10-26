@@ -33,7 +33,8 @@ document.addEventListener("DOMContentLoaded", () => {
         "page-chaos":     { emoji: "🌀", name: "图片混淆", path: "/chaos" },
         "page-clean":     { emoji: "🧹", name: "清除信息", path: "/clean" },
         "page-weathering":{ emoji: "🏺", name: "电子包浆", path: "/weathering" },
-        "page-merge":     { emoji: "🧩", name: "图片处理", path: "/processing" }
+        "page-merge":     { emoji: "🧩", name: "图片处理", path: "/processing" },
+        "page-md5":       { emoji: "#️⃣", name: "MD5 工具", path: "/md5" }
     };
 
     function switchPage(targetId, skipUrlSync = false) {
@@ -4130,6 +4131,267 @@ document.addEventListener("DOMContentLoaded", () => {
         }, "image/jpeg", 0.95);
     });
 
+    // 8.5 MD5 工具：多文件哈希读取 + 追加字节批量修改
+    // 数据模型：md5Items = [{ file, name, size, bytes(Uint8Array), hashes }]，逐项独立展示
+    const boxMd5 = document.getElementById("box-md5-upload");
+    const inputMd5 = document.getElementById("input-md5-file");
+    let md5Items = [];
+
+    boxMd5.addEventListener("click", () => inputMd5.click());
+    enableDropUpload(boxMd5, inputMd5);
+
+    // 五种哈希：MD5 自实现（RFC 1321），SHA 系列走 Web Crypto
+    const MD5_ALGOS = [
+        ["MD5", null],
+        ["SHA1", "SHA-1"],
+        ["SHA256", "SHA-256"],
+        ["SHA384", "SHA-384"],
+        ["SHA512", "SHA-512"]
+    ];
+
+    // MD5 纯 JS 实现（RFC 1321）
+    async function md5Hash(bytes) {
+        const rl = (v, s) => (v << s) | (v >>> (32 - s));
+        const toHex = (num) => {
+            let s = "";
+            for (let i = 0; i < 4; i++) s += ((num >> (i * 8)) & 0xFF).toString(16).padStart(2, "0");
+            return s;
+        };
+        const len = bytes.length;
+        const bitLen = len * 8;
+        const padded = new Uint8Array(((len + 8) >> 6 << 6) + 64);
+        padded.set(bytes);
+        padded[len] = 0x80;
+        const dv = new DataView(padded.buffer);
+        dv.setUint32(padded.length - 8, bitLen >>> 0, true);
+        dv.setUint32(padded.length - 4, Math.floor(bitLen / 0x100000000), true);
+        const K = new Uint32Array(64);
+        for (let i = 0; i < 64; i++) K[i] = Math.floor(Math.abs(Math.sin(i + 1)) * 0x100000000);
+        const S = [7,12,17,22, 7,12,17,22, 7,12,17,22, 7,12,17,22,
+                   5,9,14,20, 5,9,14,20, 5,9,14,20, 5,9,14,20,
+                   4,11,16,23, 4,11,16,23, 4,11,16,23, 4,11,16,23,
+                   6,10,15,21, 6,10,15,21, 6,10,15,21, 6,10,15,21];
+        let a0 = 0x67452301, b0 = 0xEFCDAB89, c0 = 0x98BADCFE, d0 = 0x10325476;
+        for (let chunk = 0; chunk < padded.length; chunk += 64) {
+            const M = new Uint32Array(16);
+            for (let i = 0; i < 16; i++) M[i] = dv.getUint32(chunk + i * 4, true);
+            let A = a0, B = b0, C = c0, D = d0;
+            for (let i = 0; i < 64; i++) {
+                let F, g;
+                if (i < 16)      { F = (B & C) | (~B & D);      g = i; }
+                else if (i < 32) { F = (D & B) | (~D & C);      g = (5 * i + 1) % 16; }
+                else if (i < 48) { F = B ^ C ^ D;               g = (3 * i + 5) % 16; }
+                else             { F = C ^ (B | ~D);            g = (7 * i) % 16; }
+                F = (F + A + K[i] + M[g]) >>> 0;
+                A = D; D = C; C = B;
+                B = (B + rl(F, S[i])) >>> 0;
+            }
+            a0 = (a0 + A) >>> 0; b0 = (b0 + B) >>> 0; c0 = (c0 + C) >>> 0; d0 = (d0 + D) >>> 0;
+        }
+        return toHex(a0) + toHex(b0) + toHex(c0) + toHex(d0);
+    }
+
+    async function computeMd5Hashes(bytes) {
+        const out = {};
+        for (const [name, algo] of MD5_ALGOS) {
+            try {
+                if (algo === null) {
+                    out[name] = (await md5Hash(bytes)).toUpperCase();
+                } else {
+                    const buf = await crypto.subtle.digest(algo, bytes);
+                    out[name] = [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join("").toUpperCase();
+                }
+            } catch (e) {
+                out[name] = "计算失败";
+            }
+        }
+        return out;
+    }
+
+    // 渲染文件列表：文件名 + MD5（主展示）+ 五哈希折叠明细 + 单条复制 + 删除
+    function renderMd5List() {
+        const box = document.getElementById("txt-md5-hashes");
+        const actions = document.getElementById("md5-read-actions");
+        box.style.display = md5Items.length ? "block" : "none";
+        actions.style.display = md5Items.length ? "flex" : "none";
+        box.innerHTML = "";
+        md5Items.forEach((item, i) => {
+            const block = document.createElement("div");
+            block.className = "md5-item";
+            // 头行：序号 + 文件名 + 大小 + 删除
+            const head = document.createElement("div");
+            head.className = "md5-item-head";
+            head.innerHTML = `<span class="md5-hash-name">${i + 1}. ${item.name}</span> <span style="color: var(--text-faint);">(${(item.size / 1024).toFixed(1)} KB)</span>`;
+            const del = document.createElement("button");
+            del.className = "md5-item-del";
+            del.textContent = "✕";
+            del.title = "移除";
+            del.addEventListener("click", () => {
+                md5Items.splice(i, 1);
+                renderMd5List();
+                refreshMd5Badge();
+            });
+            head.appendChild(del);
+            block.appendChild(head);
+            // MD5 主行 + 复制按钮
+            const md5Row = document.createElement("div");
+            md5Row.className = "md5-item-row";
+            md5Row.innerHTML = `<span class="md5-hash-name">MD5</span>: ${item.hashes.MD5}`;
+            const copyMd5 = document.createElement("button");
+            copyMd5.className = "md5-item-del";
+            copyMd5.textContent = "📋";
+            copyMd5.title = "复制 MD5";
+            copyMd5.addEventListener("click", async () => {
+                try {
+                    await navigator.clipboard.writeText(item.hashes.MD5);
+                    copyMd5.textContent = "✓";
+                    setTimeout(() => { copyMd5.textContent = "📋"; }, 1200);
+                } catch (e) {
+                    alert(item.hashes.MD5);
+                }
+            });
+            md5Row.appendChild(copyMd5);
+            block.appendChild(md5Row);
+            // 明细折叠（其余四种哈希）
+            const detail = document.createElement("div");
+            detail.className = "md5-item-detail";
+            detail.style.display = "none";
+            for (const [name, val] of Object.entries(item.hashes)) {
+                if (name === "MD5") continue;
+                const row = document.createElement("div");
+                row.innerHTML = `<span class="md5-hash-name">${name}</span>: ${val}`;
+                detail.appendChild(row);
+            }
+            const toggle = document.createElement("button");
+            toggle.className = "md5-item-toggle";
+            toggle.textContent = "▸ 其他哈希";
+            toggle.addEventListener("click", () => {
+                const open = detail.style.display !== "none";
+                detail.style.display = open ? "none" : "block";
+                toggle.textContent = open ? "▸ 其他哈希" : "▾ 其他哈希";
+            });
+            block.appendChild(toggle);
+            block.appendChild(detail);
+            box.appendChild(block);
+        });
+    }
+
+    function refreshMd5Badge() {
+        const badge = document.getElementById("badge-md5-info");
+        if (md5Items.length === 0) {
+            badge.style.display = "none";
+            boxMd5.querySelector(".upload-icon").style.display = "";
+            boxMd5.querySelector(".upload-text").style.display = "";
+            boxMd5.querySelector(".upload-hint").style.display = "";
+            return;
+        }
+        badge.style.display = "block";
+        badge.style.color = "";
+        badge.textContent = md5Items.length === 1
+            ? `已选 1 个文件`
+            : `已选 ${md5Items.length} 个文件`;
+    }
+
+    inputMd5.addEventListener("change", async (e) => {
+        const files = e.target.files ? Array.from(e.target.files) : [];
+        e.target.value = "";
+        if (files.length === 0) return;
+        for (const file of files) {
+            try {
+                const buf = new Uint8Array(await file.arrayBuffer());
+                const hashes = await computeMd5Hashes(buf);
+                md5Items.push({ file, name: file.name, size: file.size, bytes: buf, hashes });
+            } catch (err) { /* 单个失败跳过 */ }
+        }
+        renderMd5List();
+        refreshMd5Badge();
+    });
+
+    document.getElementById("btn-md5-copy").addEventListener("click", async () => {
+        if (md5Items.length === 0) return;
+        const text = md5Items.map((item, i) =>
+            `文件名: ${item.name}\n` + Object.entries(item.hashes).map(([k, v]) => `${k}: ${v}`).join("\n")
+        ).join("\n\n");
+        try {
+            await navigator.clipboard.writeText(text);
+            alert(`已复制 ${md5Items.length} 个文件的哈希到剪贴板`);
+        } catch (e) {
+            const range = document.createRange();
+            range.selectNodeContents(document.getElementById("txt-md5-hashes"));
+            const sel = getSelection();
+            sel.removeAllRanges(); sel.addRange(range);
+            alert("已选中哈希内容，请按 Ctrl+C 复制");
+        }
+    });
+
+    document.getElementById("btn-md5-clear").addEventListener("click", () => {
+        md5Items = [];
+        renderMd5List();
+        refreshMd5Badge();
+        document.getElementById("txt-md5-modify-result").textContent = "";
+        document.getElementById("input-md5-bytes").value = "png-phantom-tank";
+        document.getElementById("input-md5-bytes2").value = "1234567890";
+        resetMd5Box();
+    });
+
+    function resetMd5Box() {
+        boxMd5.querySelector(".upload-icon").style.display = "";
+        boxMd5.querySelector(".upload-text").style.display = "";
+        boxMd5.querySelector(".upload-hint").style.display = "";
+    }
+
+    // 批量修改：所有文件末尾追加 [主字节][副字节][随机]（每个文件独立随机）→ 逐个下载
+    document.getElementById("btn-md5-modify").addEventListener("click", async () => {
+        if (md5Items.length === 0) { alert("请先选择文件"); return; }
+        const main = document.getElementById("input-md5-bytes").value;
+        const sub = document.getElementById("input-md5-bytes2").value;
+        const useRandom = document.getElementById("chk-md5-random").checked;
+        if (!main && !sub && !useRandom) { alert("请至少填写一项字节内容或勾选随机"); return; }
+        const btn = document.getElementById("btn-md5-modify");
+        btn.disabled = true;
+        const enc = new TextEncoder();
+        let done = 0;
+        const results = [];
+        for (const item of md5Items) {
+            const parts = [item.bytes];
+            if (main) parts.push(enc.encode(main));
+            if (sub) parts.push(enc.encode(sub));
+            if (useRandom) {
+                const n = 8 + Math.floor(Math.random() * 17);
+                const rnd = new Uint8Array(n);
+                crypto.getRandomValues(rnd);
+                parts.push(rnd);
+            }
+            const total = parts.reduce((s, p) => s + p.length, 0);
+            const out = new Uint8Array(total);
+            let off = 0;
+            for (const part of parts) { out.set(part, off); off += part.length; }
+            const newMd5 = (await md5Hash(out)).toUpperCase();
+            const added = out.length - item.size;
+            results.push(`${item.name} → 新 MD5: ${newMd5}（追加 ${added} 字节）`);
+            // 逐个触发下载（间隔 200ms 防浏览器拦截）
+            setTimeout(() => {
+                const blob = new Blob([out], { type: "application/octet-stream" });
+                const dot = item.name.lastIndexOf(".");
+                const base = dot > 0 ? item.name.slice(0, dot) : item.name;
+                const ext = dot > 0 ? item.name.slice(dot) : "";
+                const a = document.createElement("a");
+                a.href = URL.createObjectURL(blob);
+                a.download = `${base} - 副本${ext}`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+            }, done * 200);
+            done++;
+        }
+        setTimeout(() => {
+            document.getElementById("txt-md5-modify-result").textContent =
+                `已生成 ${results.length} 个新文件（逐个下载中）｜ ${results[results.length - 1]}`;
+            btn.disabled = false;
+        }, (done - 1) * 200 + 100);
+    });
+
+    
     const modal = document.getElementById("modal-preview");
     const modalImg = document.getElementById("modal-img");
     const modalStage = document.getElementById("modal-stage");

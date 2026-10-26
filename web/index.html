@@ -26,7 +26,7 @@
       </button>
       <div class="app-head-center">
         <div class="app-title">APNG 伪装工具</div>
-        <div class="app-badge">Web v1.5.6</div>
+        <div class="app-badge">Web v1.5.7</div>
       </div>
       <div class="app-header-actions">
         <button id="btn-header-home" class="icon-btn" aria-label="回到主页" title="回到主页" hidden>
@@ -62,6 +62,10 @@
     <button class="menu-item" data-tab="page-merge">
       <span class="menu-item-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="18" rx="1.5"/><rect x="14" y="3" width="7" height="18" rx="1.5"/></svg></span>
       <span class="menu-item-text"><strong>图片处理</strong><em>拼接 / 网格 / 切图 / 覆盖 / 证件照</em></span>
+    </button>
+    <button class="menu-item" data-tab="page-md5">
+      <span class="menu-item-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13M8 12h13M8 18h13"/><circle cx="4" cy="6" r="1.3"/><circle cx="4" cy="12" r="1.3"/><circle cx="4" cy="18" r="1.3"/></svg></span>
+      <span class="menu-item-text"><strong>MD5 工具</strong><em>读取文件哈希 / 追加字节修改 MD5</em></span>
     </button>
   </div>
 
@@ -963,6 +967,47 @@
           <button id="btn-idp-download-sheet" class="btn-primary-large" style="margin-top: 0;">🖨️ 保存 5 寸排版</button>
         </div>
       </div>
+      </div>
+    </section>
+
+    <!-- PAGE 11: MD5 工具 -->
+    <section id="page-md5" class="tab-page">
+      <div class="card">
+        <div class="card-title"><span class="step-badge">1</span><span class="title-text">选择文件</span></div>
+        <div class="card-desc">任意文件均可；读取与修改全程本地完成，不上传服务器</div>
+        <div class="upload-box" id="box-md5-upload">
+          <input type="file" id="input-md5-file" multiple style="display: none;">
+          <div class="upload-icon">#️⃣</div>
+          <div class="upload-text">点击或拖拽文件到这里</div>
+          <div class="upload-hint">可多选 / 多张拖入，批量读取与修改</div>
+        </div>
+        <div id="badge-md5-info" class="file-info-badge"></div>
+        <div id="txt-md5-hashes" class="md5-hash-list" style="display: none;"></div>
+        <div class="action-row" id="md5-read-actions" style="display: none;">
+          <button id="btn-md5-copy" class="btn-outline" style="flex: 1;">📋 复制全部</button>
+          <button id="btn-md5-clear" class="btn-outline" style="flex: 1;">🧹 清空</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><span class="step-badge">2</span><span class="title-text">修改 MD5（追加字节）</span></div>
+        <div class="card-desc">对所有已选文件在末尾追加一段字节让哈希改变，不影响文件内容与显示；大小仅增加追加的字节数</div>
+        <div class="ov-text-row">
+          <span class="ew-slider-label">指定字节</span>
+          <input type="text" id="input-md5-bytes" class="ov-text-input" placeholder="如 png-phantom-tank" maxlength="120" value="png-phantom-tank">
+        </div>
+        <div class="ov-text-row">
+          <span class="ew-slider-label">副字节</span>
+          <input type="text" id="input-md5-bytes2" class="ov-text-input" placeholder="如 1234567890" maxlength="120" value="1234567890">
+        </div>
+        <label class="meta-toggle" style="margin-top: 10px;">
+          <input type="checkbox" id="chk-md5-random" checked>
+          <span class="meta-toggle-text">追加随机字节（每个文件生成不同的 MD5）</span>
+        </label>
+        <div class="action-row" style="margin-top: 12px;">
+          <button id="btn-md5-modify" class="btn-primary-large" style="margin-top: 0;">#️⃣ 批量修改并保存</button>
+        </div>
+        <div id="txt-md5-modify-result" class="card-desc" style="margin-top: 10px; margin-bottom: 0;"></div>
       </div>
     </section>
 

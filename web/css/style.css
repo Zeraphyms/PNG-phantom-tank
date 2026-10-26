@@ -1422,6 +1422,95 @@ html.dark .cover-row {
   text-decoration: underline;
 }
 
+/* MD5 工具：多文件列表 */
+.md5-hash-list {
+  margin-top: 10px;
+  padding: 4px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--glass);
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 12px;
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
+.md5-item {
+  padding: 8px 0;
+  border-bottom: 1px dashed var(--border);
+}
+
+.md5-item:last-child { border-bottom: none; }
+
+.md5-item-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  margin-bottom: 4px;
+}
+
+.md5-item-head span:first-child {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.md5-item-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.8;
+}
+
+.md5-item-row span:first-child { flex: 0 0 auto; }
+
+.md5-item-row span:last-child {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.md5-item-detail {
+  margin-top: 4px;
+  padding-left: 8px;
+  border-left: 2px solid var(--border);
+  line-height: 1.8;
+}
+
+.md5-item-toggle {
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 0;
+  margin-top: 2px;
+}
+
+.md5-item-toggle:hover { color: var(--primary); }
+
+.md5-item-del {
+  flex: 0 0 auto;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 5px;
+  border-radius: 5px;
+}
+
+.md5-item-del:hover { color: var(--danger); background: var(--danger-soft); }
+
+.md5-hash-name {
+  color: var(--primary);
+  font-weight: 700;
+}
+
 /* 编辑模式行 + 细分弹出菜单 */
 .gm-mode-row {
   display: flex;
