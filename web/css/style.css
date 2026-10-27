@@ -1422,6 +1422,69 @@ html.dark .cover-row {
   text-decoration: underline;
 }
 
+/* 图片压缩：画质预览（竖排大图，每张带压缩后标注与删除） */
+.cp-preview-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+/* 竖排大图版：单列铺满卡片宽 */
+.cp-preview-gallery.cp-preview-vertical {
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+
+.cp-preview-item {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--surface-sunken);
+  position: relative;
+}
+
+.cp-preview-item img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.cp-preview-item .cp-preview-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 9px;
+  font-size: 12px;
+  color: var(--text-muted);
+  background: var(--glass);
+  font-variant-numeric: tabular-nums;
+}
+
+.cp-preview-item .cp-preview-label b {
+  color: var(--success);
+  font-weight: 700;
+}
+
+.cp-preview-del {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 2;
+  border: none;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  font-size: 12px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.cp-preview-del:hover { background: var(--danger); }
+
 /* MD5 工具：多文件列表 */
 .md5-hash-list {
   margin-top: 10px;

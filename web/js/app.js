@@ -34,7 +34,7 @@ document.addEventListener("DOMContentLoaded", () => {
         "page-clean":     { emoji: "🧹", name: "清除信息", path: "/clean" },
         "page-weathering":{ emoji: "🏺", name: "电子包浆", path: "/weathering" },
         "page-merge":     { emoji: "🧩", name: "图片处理", path: "/processing" },
-        "page-md5":       { emoji: "#️⃣", name: "MD5 工具", path: "/md5" }
+        "page-md5":       { emoji: "🧰", name: "图片工具", path: "/md5" }
     };
 
     function switchPage(targetId, skipUrlSync = false) {
@@ -47,11 +47,13 @@ document.addEventListener("DOMContentLoaded", () => {
         const isFeature = !!FEATURE_PAGES[targetId];
         document.getElementById("main-tab-bar").hidden = isFeature;
         document.getElementById("feature-tab-bar").hidden = !isFeature;
-        // 图片处理页的功能名换成子功能切换；其他功能页显示功能名
-        const isMerge = targetId === "page-merge";
-        document.getElementById("merge-sub-tabs").hidden = !isMerge;
-        document.getElementById("txt-feature-name").hidden = isMerge;
-        if (isFeature) {
+        // 图片处理 / 图片工具 两页的功能名换成子功能切换；其他功能页显示功能名
+        const hasSubTabs = targetId === "page-merge" || targetId === "page-md5";
+        document.getElementById("merge-sub-tabs").hidden = !hasSubTabs;
+        document.getElementById("txt-feature-name").hidden = hasSubTabs;
+        if (hasSubTabs) {
+            applySubTabsForPage(targetId);   // 按页过滤子标签并回到第一项
+        } else {
             document.getElementById("txt-feature-emoji").textContent = FEATURE_PAGES[targetId].emoji;
             document.getElementById("txt-feature-text").textContent = FEATURE_PAGES[targetId].name;
         }
@@ -3348,14 +3350,36 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
-    // 8.3.1 图片处理子面板切换：拼接 / 网格拼接 / 九宫格切图 / 覆盖图片
+    // 8.3.1 子面板切换：两页共用的底部子功能切换
+    // 图片处理（page-merge）：拼接 / 网格拼接 / 九宫格切图 / 覆盖图片 / 相片处理
+    // 图片工具（page-md5）：MD5 哈希 / 图片压缩 / 格式转换
     const mergeSubPanels = {
         merge: document.getElementById("panel-merge-merge"),
         gridmerge: document.getElementById("panel-merge-gridmerge"),
         grid: document.getElementById("panel-merge-grid"),
         overlay: document.getElementById("panel-merge-overlay"),
-        idphoto: document.getElementById("panel-merge-idphoto")
+        idphoto: document.getElementById("panel-merge-idphoto"),
+        md5hash: document.getElementById("panel-md5-hash"),
+        imgcompress: document.getElementById("panel-img-compress"),
+        imgconvert: document.getElementById("panel-img-convert")
     };
+    // 页面 → 子标签映射（切页时只显示本页的子标签并回到第一项）
+    const SUB_TABS_BY_PAGE = {
+        "page-merge": ["merge", "gridmerge", "grid", "overlay", "idphoto"],
+        "page-md5": ["md5hash", "imgcompress", "imgconvert"]
+    };
+    function applySubTabsForPage(targetId) {
+        const allowed = SUB_TABS_BY_PAGE[targetId];
+        if (!allowed) return null;
+        document.querySelectorAll("#merge-sub-tabs .segmented-btn").forEach(b => {
+            b.style.display = allowed.includes(b.getAttribute("data-sub")) ? "" : "none";
+            b.classList.toggle("active", b.getAttribute("data-sub") === allowed[0]);
+        });
+        // 隐藏全部子面板，显示第一个
+        Object.entries(mergeSubPanels).forEach(([k, p]) => { p.hidden = k !== allowed[0]; });
+        mergeSubMode = allowed[0];
+        return allowed[0];
+    }
     let mergeSubMode = "merge";
     document.querySelectorAll("#merge-sub-tabs .segmented-btn").forEach(btn => {
         btn.addEventListener("click", () => {
@@ -4333,6 +4357,361 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById("input-md5-bytes2").value = "1234567890";
         resetMd5Box();
     });
+
+    // 8.6 图片压缩：多图 → 统一 JPG，质量滑条实时预览（rAF 合帧，无编码开销），
+    // 体积估算用「绘制→toBlob」仅取 size（弱设备可能掉帧，但展示量级足够）；保存时才正式编码
+    const boxCp = document.getElementById("box-cp-upload");
+    const inputCp = document.getElementById("input-cp-image");
+    let cpItems = [];   // [{ file, name, size, bytes }]
+    let cpResults = []; // [{ blob, url, filename, origSize }] 保存用的最终结果（保存时生成）
+    let cpDirty = false, cpRaf = 0;
+
+    boxCp.addEventListener("click", () => inputCp.click());
+    enableDropUpload(boxCp, inputCp);
+
+    const cpQualitySlider = document.getElementById("cp-slider-quality");
+    cpQualitySlider.addEventListener("input", () => {
+        document.getElementById("cp-val-quality").textContent = Math.round(cpQualitySlider.value * 100) + "%";
+        scheduleCpPreview();
+    });
+
+    // 实时预览：竖排大图（每张画压缩后的 JPEG，画质所见即所得）+ 逐张体积对比 + 单删/全删
+    function renderCpPreview() {
+        const list = document.getElementById("cp-result-list");
+        const card = document.getElementById("card-cp-result");
+        const gallery = document.getElementById("cp-preview-gallery");
+        const summary = document.getElementById("txt-cp-summary");
+        if (cpItems.length === 0) {
+            card.style.display = "none";
+            list.innerHTML = "";
+            gallery.innerHTML = "";
+            return;
+        }
+        card.style.display = "block";
+        list.innerHTML = "";
+        gallery.innerHTML = "";
+        const quality = parseFloat(cpQualitySlider.value);
+        let origTotal = 0, newTotal = 0;
+        cpItems.forEach((item, i) => {
+            const img = cpImgCache[i];
+            let newSize = item.size;
+            if (img) {
+                // 预览画布：≤480 宽（竖排大图展示）
+                const w0 = img.naturalWidth || img.width, h0 = img.naturalHeight || img.height;
+                const k = Math.min(1, 480 / w0);
+                const cv = document.createElement("canvas");
+                cv.width = Math.max(1, Math.round(w0 * k));
+                cv.height = Math.max(1, Math.round(h0 * k));
+                cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
+                const dataUrl = cv.toDataURL("image/jpeg", quality);
+                newSize = Math.round((dataUrl.length - dataUrl.indexOf(",") - 1) * 3 / 4);
+                if (k < 1) newSize = Math.round(newSize / (k * k));   // 体积与像素量近似线性，回折到原尺寸量级
+
+                const itemEl = document.createElement("div");
+                itemEl.className = "cp-preview-item";
+                const im = document.createElement("img");
+                im.src = dataUrl;
+                im.alt = item.name;
+                const saved = item.size > 0 ? Math.max(0, Math.round((1 - newSize / item.size) * 100)) : 0;
+                itemEl.innerHTML = `<div class="cp-preview-label"><span>${i + 1}. ${item.name}</span>` +
+                    `<span>${(item.size / 1024).toFixed(0)}KB → ${(newSize / 1024).toFixed(0)}KB</span>` +
+                    `<b>${saved > 0 ? "省" + saved + "%" : "—"}</b></div>`;
+                const del = document.createElement("button");
+                del.className = "cp-preview-del";
+                del.textContent = "✕";
+                del.title = "从预览中移除";
+                del.addEventListener("click", () => {
+                    cpItems.splice(i, 1);
+                    cpImgCache.splice(i, 1);
+                    renderCpPreview();
+                    const badge = document.getElementById("badge-cp-info");
+                    badge.textContent = cpItems.length ? `已选 ${cpItems.length} 张图片` : "";
+                    if (!cpItems.length) badge.style.display = "none";
+                });
+                itemEl.insertBefore(im, itemEl.firstChild);
+                itemEl.appendChild(del);
+                gallery.appendChild(itemEl);
+            }
+            origTotal += item.size; newTotal += newSize;
+            const saved = item.size > 0 ? Math.max(0, Math.round((1 - newSize / item.size) * 100)) : 0;
+            const row = document.createElement("div");
+            row.className = "md5-item";
+            row.innerHTML = `<div class="md5-item-head"><span class="md5-hash-name">${item.name}</span>` +
+                `<span style="color: ${newSize < item.size ? "var(--success)" : "var(--text-faint)"};">` +
+                `${(item.size / 1024).toFixed(0)}KB → ${(newSize / 1024).toFixed(0)}KB（省 ${saved}%）</span></div>`;
+            list.appendChild(row);
+        });
+        document.getElementById("txt-cp-live").textContent = `已选 ${cpItems.length} 张 · 画质 ${Math.round(quality * 100)}%`;
+        summary.textContent = `实时预览（缩略为画质示意，保存为原图高清压缩）| 总计 ${(origTotal / 1024 / 1024).toFixed(2)}MB → ~${(newTotal / 1024 / 1024).toFixed(2)}MB` +
+            (newTotal < origTotal ? `（省 ${Math.round((1 - newTotal / origTotal) * 100)}%）` : "（当前画质体积增大，建议降低画质）");
+    }
+
+    // 缓存已解码 Image（避免滑条拖动时反复解码源文件）
+    let cpImgCache = [];
+    function scheduleCpPreview() {
+        cpDirty = true;
+        if (!cpRaf) cpRaf = requestAnimationFrame(() => {
+            cpRaf = 0;
+            if (!cpDirty) return;
+            cpDirty = false;
+            renderCpPreview();
+        });
+    }
+
+    // 清空全部预览
+    document.getElementById("btn-cp-clear").addEventListener("click", () => {
+        cpItems = [];
+        cpImgCache = [];
+        renderCpPreview();
+        document.getElementById("badge-cp-info").style.display = "none";
+    });
+
+    document.getElementById("btn-cp-download").addEventListener("click", () => {
+        if (cpItems.length === 0) { alert("请先选择图片"); return; }
+        const quality = parseFloat(cpQualitySlider.value);
+        const btn = document.getElementById("btn-cp-download");
+        btn.disabled = true;
+        btn.textContent = "⏳ 高清压缩中...";
+        let done = 0;
+        cpItems.forEach((item, i) => {
+            const img = new Image();
+            img.onload = () => {
+                const cv = document.createElement("canvas");
+                cv.width = img.naturalWidth || img.width;
+                cv.height = img.naturalHeight || img.height;
+                cv.getContext("2d").drawImage(img, 0, 0);
+                cv.toBlob(blob => {
+                    if (blob) {
+                        const dot = item.name.lastIndexOf(".");
+                        const base = dot > 0 ? item.name.slice(0, dot) : item.name;
+                        const a = document.createElement("a");
+                        a.href = URL.createObjectURL(blob);
+                        a.download = `${base}_compressed.jpg`;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                    }
+                    done++;
+                    if (done === cpItems.length) {
+                        btn.disabled = false;
+                        btn.textContent = "💾 一键保存全部";
+                    }
+                }, "image/jpeg", quality);
+            };
+            img.src = URL.createObjectURL(new Blob([item.bytes]));
+        });
+    });
+
+    inputCp.addEventListener("change", async (e) => {
+        const files = e.target.files ? Array.from(e.target.files) : [];
+        e.target.value = "";
+        cpItems = [];
+        cpImgCache = [];
+        for (const file of files) {
+            try {
+                const bytes = new Uint8Array(await file.arrayBuffer());
+                cpItems.push({ file, name: file.name, size: file.size, bytes });
+                // 预解码进缓存（选图时一次性成本）
+                const img = await loadImage(URL.createObjectURL(file));
+                cpImgCache[cpItems.length - 1] = img;
+            } catch (err) { /* 跳过 */ }
+        }
+        const badge = document.getElementById("badge-cp-info");
+        badge.style.display = "block";
+        badge.textContent = `已选 ${cpItems.length} 张图片`;
+        renderCpPreview();
+    });
+
+    // 8.7 格式转换：PNG/JPG/WEBP 互转
+    const boxCv = document.getElementById("box-cv-upload");
+    const inputCv = document.getElementById("input-cv-image");
+    let cvItems = [];
+    let cvResults = [];
+    let cvFormat = "jpeg";
+
+    boxCv.addEventListener("click", () => inputCv.click());
+    enableDropUpload(boxCv, inputCv);
+
+    // 已选文件列表（选图即显示，✕ 移除单个，全部移除按钮）
+    function renderCvFileList() {
+        const listEl = document.getElementById("cv-file-list");
+        const actionsEl = document.getElementById("cv-file-actions");
+        listEl.innerHTML = "";
+        actionsEl.style.display = cvItems.length ? "flex" : "none";
+        cvItems.forEach((item, i) => {
+            const row = document.createElement("div");
+            row.className = "merge-file-item";
+            const order = document.createElement("span");
+            order.className = "merge-file-order";
+            order.textContent = String(i + 1);
+            const name = document.createElement("span");
+            name.className = "merge-file-name";
+            name.textContent = `${item.name} (${(item.size / 1024).toFixed(0)} KB)`;
+            const del = document.createElement("button");
+            del.className = "merge-file-del";
+            del.textContent = "✕";
+            del.title = "移除";
+            del.addEventListener("click", () => {
+                cvItems.splice(i, 1);
+                renderCvFileList();
+                refreshCvBadge();
+            });
+            row.appendChild(order);
+            row.appendChild(name);
+            row.appendChild(del);
+            listEl.appendChild(row);
+        });
+    }
+
+    function refreshCvBadge() {
+        const badge = document.getElementById("badge-cv-info");
+        if (cvItems.length === 0) {
+            badge.style.display = "none";
+            boxCv.querySelector(".upload-icon").style.display = "";
+            boxCv.querySelector(".upload-text").style.display = "";
+            boxCv.querySelector(".upload-hint").style.display = "";
+            return;
+        }
+        badge.style.display = "block";
+        badge.style.color = "";
+        badge.textContent = `已选 ${cvItems.length} 张图片`;
+    }
+
+    document.getElementById("btn-cv-clearfiles").addEventListener("click", () => {
+        cvItems = [];
+        renderCvFileList();
+        refreshCvBadge();
+    });
+
+    const cvQualitySlider = document.getElementById("cv-slider-quality");
+    cvQualitySlider.addEventListener("input", () => {
+        document.getElementById("cv-val-quality").textContent = Math.round(cvQualitySlider.value * 100) + "%";
+    });
+    document.querySelectorAll("#cv-format-group .segmented-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            document.querySelectorAll("#cv-format-group .segmented-btn").forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+            cvFormat = btn.getAttribute("data-fmt");
+            // PNG 无损无质量参数，画质滑条仅对 JPG/WEBP 有意义
+            document.getElementById("row-cv-quality").style.opacity = cvFormat === "png" ? ".45" : "";
+            document.getElementById("row-cv-quality").style.pointerEvents = cvFormat === "png" ? "none" : "";
+        });
+    });
+
+    // 转换结果列表（MD5 同款交互）：单条保存 / ✕ 移除；卡片头有清空全部
+    function renderCvResults() {
+        const list = document.getElementById("cv-result-list");
+        list.innerHTML = "";
+        cvResults.forEach((r, i) => {
+            const row = document.createElement("div");
+            row.className = "md5-item";
+            const head = document.createElement("div");
+            head.className = "md5-item-head";
+            head.innerHTML = `<span class="md5-hash-name">${r.filename}</span>` +
+                `<span style="color: var(--text-faint);">${(r.origSize / 1024).toFixed(0)}KB → ${(r.blob.size / 1024).toFixed(0)}KB</span>`;
+            const saveBtn = document.createElement("button");
+            saveBtn.className = "md5-item-del";
+            saveBtn.textContent = "💾";
+            saveBtn.title = "保存这个";
+            saveBtn.addEventListener("click", () => {
+                const a = document.createElement("a");
+                a.href = r.url;
+                a.download = r.filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+            });
+            const del = document.createElement("button");
+            del.className = "md5-item-del";
+            del.textContent = "✕";
+            del.title = "从列表移除";
+            del.addEventListener("click", () => {
+                URL.revokeObjectURL(r.url);
+                cvResults.splice(i, 1);
+                renderCvResults();
+            });
+            head.appendChild(saveBtn);
+            head.appendChild(del);
+            row.appendChild(head);
+            list.appendChild(row);
+        });
+    }
+
+    // 清空全部转换结果
+    document.getElementById("btn-cv-clear").addEventListener("click", () => {
+        cvResults.forEach(r => URL.revokeObjectURL(r.url));
+        cvResults = [];
+        renderCvResults();
+        document.getElementById("card-cv-result").style.display = "none";
+    });
+
+    document.getElementById("btn-cv-convert").addEventListener("click", async () => {
+        if (cvItems.length === 0) { alert("请先选择图片"); return; }
+        const btn = document.getElementById("btn-cv-convert");
+        btn.disabled = true;
+        btn.textContent = "⏳ 转换中...";
+        cvResults.forEach(r => URL.revokeObjectURL(r.url));
+        cvResults = [];
+        const quality = parseFloat(cvQualitySlider.value);
+        const mime = cvFormat === "png" ? "image/png" : (cvFormat === "webp" ? "image/webp" : "image/jpeg");
+
+        for (const item of cvItems) {
+            const img = await loadImage(URL.createObjectURL(new Blob([item.bytes])));
+            const cv = document.createElement("canvas");
+            cv.width = img.naturalWidth || img.width;
+            cv.height = img.naturalHeight || img.height;
+            const ctx = cv.getContext("2d");
+            // PNG→JPG：透明区域按开关填白/黑（JPG 无透明通道）
+            if (cvFormat === "jpeg") {
+                ctx.fillStyle = document.getElementById("chk-cv-whitebg").checked ? "#FFFFFF" : "#000000";
+                ctx.fillRect(0, 0, cv.width, cv.height);
+            }
+            ctx.drawImage(img, 0, 0);
+            const blob = await new Promise(res => cv.toBlob(res, mime, quality));
+            if (!blob) continue;
+            const dot = item.name.lastIndexOf(".");
+            const base = dot > 0 ? item.name.slice(0, dot) : item.name;
+            const ext = cvFormat === "jpeg" ? "jpg" : cvFormat;
+            cvResults.push({
+                blob,
+                url: URL.createObjectURL(blob),
+                filename: `${base}.${ext}`,
+                origSize: item.size
+            });
+        }
+
+        renderCvResults();
+        document.getElementById("card-cv-result").style.display = "block";
+        btn.disabled = false;
+        btn.textContent = "🔄 开始转换";
+    });
+
+    document.getElementById("btn-cv-download").addEventListener("click", () => {
+        cvResults.forEach((r, i) => {
+            setTimeout(() => {
+                const a = document.createElement("a");
+                a.href = r.url;
+                a.download = r.filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+            }, i * 200);
+        });
+    });
+
+    inputCv.addEventListener("change", async (e) => {
+        const files = e.target.files ? Array.from(e.target.files) : [];
+        e.target.value = "";
+        for (const file of files) {
+            try {
+                const bytes = new Uint8Array(await file.arrayBuffer());
+                cvItems.push({ file, name: file.name, size: file.size, bytes });
+            } catch (err) { /* 跳过 */ }
+        }
+        renderCvFileList();
+        refreshCvBadge();
+    });
+
 
     function resetMd5Box() {
         boxMd5.querySelector(".upload-icon").style.display = "";

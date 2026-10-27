@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
@@ -13,7 +13,7 @@
       document.documentElement.classList.toggle("dark", !!dark);
     })();
   </script>
-  <link rel="stylesheet" href="css/style.css?v=1.5.6">
+  <link rel="stylesheet" href="css/style.css?v=1.5.8">
 </head>
 <body>
 
@@ -26,7 +26,7 @@
       </button>
       <div class="app-head-center">
         <div class="app-title">APNG 伪装工具</div>
-        <div class="app-badge">Web v1.5.7</div>
+        <div class="app-badge">Web v1.5.8</div>
       </div>
       <div class="app-header-actions">
         <button id="btn-header-home" class="icon-btn" aria-label="回到主页" title="回到主页" hidden>
@@ -61,11 +61,11 @@
     </button>
     <button class="menu-item" data-tab="page-merge">
       <span class="menu-item-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="18" rx="1.5"/><rect x="14" y="3" width="7" height="18" rx="1.5"/></svg></span>
-      <span class="menu-item-text"><strong>图片处理</strong><em>拼接 / 网格 / 切图 / 覆盖 / 证件照</em></span>
+      <span class="menu-item-text"><strong>图片处理</strong><em>拼接 / 网格 / 九宫格切图 / 覆盖 / 证件照</em></span>
     </button>
     <button class="menu-item" data-tab="page-md5">
-      <span class="menu-item-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13M8 12h13M8 18h13"/><circle cx="4" cy="6" r="1.3"/><circle cx="4" cy="12" r="1.3"/><circle cx="4" cy="18" r="1.3"/></svg></span>
-      <span class="menu-item-text"><strong>MD5 工具</strong><em>读取文件哈希 / 追加字节修改 MD5</em></span>
+      <span class="menu-item-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3v6h6"/><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M9 13h6M9 17h6"/></svg></span>
+      <span class="menu-item-text"><strong>图片工具</strong><em>MD5 增改 / 图片压缩 / 格式转换</em></span>
     </button>
   </div>
 
@@ -80,11 +80,14 @@
     <div class="tab-bar feature-bar" id="feature-tab-bar" hidden>
       <div class="feature-bar-title" id="txt-feature-name"><span class="feature-name-wrap"><span class="feature-name-emoji" id="txt-feature-emoji"></span><span id="txt-feature-text">功能</span></span></div>
       <div class="segmented feature-sub-tabs" id="merge-sub-tabs" hidden>
-        <button class="segmented-btn active" data-sub="merge">图片拼接</button>
+        <button class="segmented-btn" data-sub="merge">图片拼接</button>
         <button class="segmented-btn" data-sub="gridmerge">网格拼接</button>
         <button class="segmented-btn" data-sub="grid">九宫格切图</button>
         <button class="segmented-btn" data-sub="overlay">覆盖图片</button>
         <button class="segmented-btn" data-sub="idphoto">相片处理</button>
+        <button class="segmented-btn" data-sub="md5hash">MD5 哈希</button>
+        <button class="segmented-btn" data-sub="imgcompress">图片压缩</button>
+        <button class="segmented-btn" data-sub="imgconvert">格式转换</button>
       </div>
     </div>
   </div>
@@ -970,8 +973,11 @@
       </div>
     </section>
 
-    <!-- PAGE 11: MD5 工具 -->
+    <!-- PAGE 11: 图片工具（MD5 / 压缩 / 转换） -->
     <section id="page-md5" class="tab-page">
+
+      <!-- 子面板 1: MD5 哈希 -->
+      <div id="panel-md5-hash" class="merge-sub-panel">
       <div class="card">
         <div class="card-title"><span class="step-badge">1</span><span class="title-text">选择文件</span></div>
         <div class="card-desc">任意文件均可；读取与修改全程本地完成，不上传服务器</div>
@@ -1008,6 +1014,107 @@
           <button id="btn-md5-modify" class="btn-primary-large" style="margin-top: 0;">#️⃣ 批量修改并保存</button>
         </div>
         <div id="txt-md5-modify-result" class="card-desc" style="margin-top: 10px; margin-bottom: 0;"></div>
+      </div>
+      </div>
+
+      <!-- 子面板 2: 图片压缩 -->
+      <div id="panel-img-compress" class="merge-sub-panel" hidden>
+        <div class="card">
+          <div class="card-title"><span class="step-badge">1</span><span class="title-text">选择图片</span></div>
+          <div class="card-desc">可多选 / 多张拖入，JPG / PNG / WEBP 均可，压缩全程本地完成</div>
+          <div class="upload-box" id="box-cp-upload">
+            <input type="file" id="input-cp-image" accept="image/*" multiple style="display: none;">
+            <div class="upload-icon">🗜️</div>
+            <div class="upload-text">点击或拖拽图片到这里 (可多选)</div>
+            <div class="upload-hint">压缩输出统一为 JPG（体积最小）</div>
+            <img id="img-cp-preview" class="file-preview-img" alt="原图预览">
+          </div>
+          <div id="badge-cp-info" class="file-info-badge"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span class="step-badge">2</span><span class="title-text">压缩设置</span>
+            <span class="title-actions">
+              <span class="card-desc" id="txt-cp-live">已选 0 张</span>
+            </span>
+          </div>
+          <div class="ew-slider-row">
+            <span class="ew-slider-label">画质</span>
+            <input type="range" id="cp-slider-quality" class="ew-slider" min="0.1" max="1" step="0.01" value="0.8">
+            <span class="ew-slider-val" id="cp-val-quality">80%</span>
+          </div>
+        </div>
+
+        <div class="card" id="card-cp-result" style="display: none;">
+          <div class="card-title">🗜️ 压缩预览
+            <span class="title-actions">
+              <button id="btn-cp-clear" class="gm-reset-btn" type="button">清空全部</button>
+            </span>
+          </div>
+          <div class="card-desc" id="txt-cp-summary">拖动画质滑条实时更新（预览为缩小版画质示意，保存为原图高清压缩）</div>
+          <div id="cp-preview-gallery" class="cp-preview-gallery cp-preview-vertical"></div>
+          <div id="cp-result-list" class="cp-result-list"></div>
+          <div class="action-row" style="margin-top: 12px;">
+            <button id="btn-cp-download" class="btn-primary-large" style="margin-top: 0;">💾 一键保存全部</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 子面板 3: 格式转换 -->
+      <div id="panel-img-convert" class="merge-sub-panel" hidden>
+        <div class="card">
+          <div class="card-title"><span class="step-badge">1</span><span class="title-text">选择图片</span></div>
+          <div class="card-desc">可多选 / 多张拖入，转换全程本地完成</div>
+          <div class="upload-box" id="box-cv-upload">
+            <input type="file" id="input-cv-image" accept="image/*" multiple style="display: none;">
+            <div class="upload-icon">🔄</div>
+            <div class="upload-text">点击或拖拽图片到这里 (可多选)</div>
+            <div class="upload-hint">支持 PNG / JPG / WEBP 互转</div>
+            <img id="img-cv-preview" class="file-preview-img" alt="原图预览">
+          </div>
+          <div id="badge-cv-info" class="file-info-badge"></div>
+          <div id="cv-file-list" class="merge-file-list"></div>
+          <div class="action-row" id="cv-file-actions" style="display: none;">
+            <button id="btn-cv-clearfiles" class="btn-outline" style="flex: 1;">🧹 全部移除</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span class="step-badge">2</span><span class="title-text">转换设置</span></div>
+          <div class="ew-slider-row">
+            <span class="ew-slider-label">目标</span>
+            <div class="segmented merge-radius-mode" id="cv-format-group" role="group" aria-label="目标格式" style="transform-origin: left center;">
+              <button class="segmented-btn" data-fmt="png">PNG</button>
+              <button class="segmented-btn active" data-fmt="jpeg">JPG</button>
+              <button class="segmented-btn" data-fmt="webp">WEBP</button>
+            </div>
+          </div>
+          <div class="ew-slider-row" id="row-cv-quality">
+            <span class="ew-slider-label">画质</span>
+            <input type="range" id="cv-slider-quality" class="ew-slider" min="0.1" max="1" step="0.01" value="0.9">
+            <span class="ew-slider-val" id="cv-val-quality">90%</span>
+          </div>
+          <label class="meta-toggle" style="margin-top: 10px;">
+            <input type="checkbox" id="chk-cv-whitebg" checked>
+            <span class="meta-toggle-text">透明背景转 JPG 时填充白色（不勾选则填充黑色）</span>
+          </label>
+          <div class="action-row" style="margin-top: 12px;">
+            <button id="btn-cv-convert" class="btn-primary-large" style="margin-top: 0;">🔄 开始转换</button>
+          </div>
+        </div>
+
+        <div class="card" id="card-cv-result" style="display: none;">
+          <div class="card-title">🔄 转换结果
+            <span class="title-actions">
+              <button id="btn-cv-clear" class="gm-reset-btn" type="button">清空全部</button>
+            </span>
+          </div>
+          <div class="card-desc">转换完成的文件列表，可逐个保存或一键全部保存</div>
+          <div id="cv-result-list" class="cp-result-list"></div>
+          <div class="action-row" style="margin-top: 12px;">
+            <button id="btn-cv-download" class="btn-primary-large" style="margin-top: 0;">💾 一键保存全部</button>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -1075,7 +1182,7 @@
 <script src="js/MiniZlib.js"></script>
 <script src="js/default_cover.js"></script>
 <script src="js/ew_watermarks.js"></script>
-<script src="js/app.js?v=1.5.6"></script>
+<script src="js/app.js?v=1.5.8"></script>
 
 </body>
 </html>
