@@ -332,7 +332,8 @@ html.dark #btn-theme .icon-moon { display: none; }
 .menu-item-text em {
   font-style: normal;
   font-size: 11.5px;
-  color: var(--text-faint);
+  /* 淡蓝：菜单毛玻璃底下小字描述更清晰（--text-faint 透背景看不清） */
+  color: color-mix(in srgb, var(--primary) 72%, var(--text-muted));
   margin-top: 1px;
 }
 
