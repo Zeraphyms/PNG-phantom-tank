@@ -4375,6 +4375,34 @@ document.addEventListener("DOMContentLoaded", () => {
         scheduleCpPreview();
     });
 
+    // 压缩方式：仅画质 / 仅尺寸 / 画质+尺寸（都选时先等比缩放再压画质）
+    let cpMode = "quality";
+    const cpScaleSlider = document.getElementById("cp-slider-scale");
+    cpScaleSlider.addEventListener("input", () => {
+        document.getElementById("cp-val-scale").textContent = Math.round(cpScaleSlider.value * 100) + "%";
+        scheduleCpPreview();
+    });
+    document.querySelectorAll("#cp-mode-group .segmented-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            document.querySelectorAll("#cp-mode-group .segmented-btn").forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+            cpMode = btn.getAttribute("data-cp-mode");
+            // 尺寸滑条仅在"仅尺寸/画质+尺寸"下可用
+            const scaleOn = cpMode !== "quality";
+            document.getElementById("row-cp-scale").style.opacity = scaleOn ? "" : ".45";
+            document.getElementById("row-cp-scale").style.pointerEvents = scaleOn ? "" : "none";
+            // 仅尺寸时画质固定 1.0（最高画质输出），画质滑条禁用
+            const qualityOn = cpMode !== "scale";
+            cpQualitySlider.disabled = !qualityOn;
+            document.getElementById("cp-val-quality").style.opacity = qualityOn ? "" : ".45";
+            document.getElementById("cp-slider-quality").style.opacity = qualityOn ? "" : ".45";
+            document.getElementById("txt-cp-size-hint").textContent = scaleOn
+                ? `等比例缩放：宽高同时缩放，不变形；输出仍为 JPG`
+                : "只调画质：保持原尺寸像素不变";
+            scheduleCpPreview();
+        });
+    });
+
     // 实时预览：竖排大图（每张画压缩后的 JPEG，画质所见即所得）+ 逐张体积对比 + 单删/全删
     function renderCpPreview() {
         const list = document.getElementById("cp-result-list");
@@ -4391,29 +4419,34 @@ document.addEventListener("DOMContentLoaded", () => {
         list.innerHTML = "";
         gallery.innerHTML = "";
         const quality = parseFloat(cpQualitySlider.value);
+        const scaleFactor = cpMode === "quality" ? 1 : parseFloat(cpScaleSlider.value);
         let origTotal = 0, newTotal = 0;
         cpItems.forEach((item, i) => {
             const img = cpImgCache[i];
             let newSize = item.size;
             if (img) {
-                // 预览画布：≤480 宽（竖排大图展示）
+                // 预览画布：目标像素 = 原尺寸 × 等比缩放；再限制 ≤480 宽用于展示
                 const w0 = img.naturalWidth || img.width, h0 = img.naturalHeight || img.height;
-                const k = Math.min(1, 480 / w0);
+                const targetW = Math.max(1, Math.round(w0 * scaleFactor));
+                const targetH = Math.max(1, Math.round(h0 * scaleFactor));
+                const k = Math.min(1, 480 / targetW);
                 const cv = document.createElement("canvas");
-                cv.width = Math.max(1, Math.round(w0 * k));
-                cv.height = Math.max(1, Math.round(h0 * k));
+                cv.width = Math.max(1, Math.round(targetW * k));
+                cv.height = Math.max(1, Math.round(targetH * k));
                 cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
                 const dataUrl = cv.toDataURL("image/jpeg", quality);
                 newSize = Math.round((dataUrl.length - dataUrl.indexOf(",") - 1) * 3 / 4);
-                if (k < 1) newSize = Math.round(newSize / (k * k));   // 体积与像素量近似线性，回折到原尺寸量级
+                if (k < 1) newSize = Math.round(newSize / (k * k));   // 体积与像素量近似线性，回折到目标尺寸量级
 
                 const itemEl = document.createElement("div");
                 itemEl.className = "cp-preview-item";
                 const im = document.createElement("img");
                 im.src = dataUrl;
                 im.alt = item.name;
+                const dimChanged = targetW !== w0 || targetH !== h0;
                 const saved = item.size > 0 ? Math.max(0, Math.round((1 - newSize / item.size) * 100)) : 0;
                 itemEl.innerHTML = `<div class="cp-preview-label"><span>${i + 1}. ${item.name}</span>` +
+                    (dimChanged ? `<span style="color: var(--primary);">${w0}×${h0} → ${targetW}×${targetH}</span>` : "") +
                     `<span>${(item.size / 1024).toFixed(0)}KB → ${(newSize / 1024).toFixed(0)}KB</span>` +
                     `<b>${saved > 0 ? "省" + saved + "%" : "—"}</b></div>`;
                 const del = document.createElement("button");
@@ -4441,9 +4474,10 @@ document.addEventListener("DOMContentLoaded", () => {
                 `${(item.size / 1024).toFixed(0)}KB → ${(newSize / 1024).toFixed(0)}KB（省 ${saved}%）</span></div>`;
             list.appendChild(row);
         });
-        document.getElementById("txt-cp-live").textContent = `已选 ${cpItems.length} 张 · 画质 ${Math.round(quality * 100)}%`;
-        summary.textContent = `实时预览（缩略为画质示意，保存为原图高清压缩）| 总计 ${(origTotal / 1024 / 1024).toFixed(2)}MB → ~${(newTotal / 1024 / 1024).toFixed(2)}MB` +
-            (newTotal < origTotal ? `（省 ${Math.round((1 - newTotal / origTotal) * 100)}%）` : "（当前画质体积增大，建议降低画质）");
+        document.getElementById("txt-cp-live").textContent = `已选 ${cpItems.length} 张 · 画质 ${Math.round(quality * 100)}%` +
+            (cpMode !== "quality" ? ` · 尺寸 ${Math.round(scaleFactor * 100)}%` : "");
+        summary.textContent = `实时预览（缩略为画质示意，保存按设置的高清压缩）| 总计 ${(origTotal / 1024 / 1024).toFixed(2)}MB → ~${(newTotal / 1024 / 1024).toFixed(2)}MB` +
+            (newTotal < origTotal ? `（省 ${Math.round((1 - newTotal / origTotal) * 100)}%）` : "（当前设置体积增大，建议降低画质或尺寸）");
     }
 
     // 缓存已解码 Image（避免滑条拖动时反复解码源文件）
@@ -4468,7 +4502,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
     document.getElementById("btn-cp-download").addEventListener("click", () => {
         if (cpItems.length === 0) { alert("请先选择图片"); return; }
-        const quality = parseFloat(cpQualitySlider.value);
+        const quality = cpMode === "scale" ? 1.0 : parseFloat(cpQualitySlider.value);
+        const scaleFactor = cpMode === "quality" ? 1 : parseFloat(cpScaleSlider.value);
         const btn = document.getElementById("btn-cp-download");
         btn.disabled = true;
         btn.textContent = "⏳ 高清压缩中...";
@@ -4476,17 +4511,18 @@ document.addEventListener("DOMContentLoaded", () => {
         cpItems.forEach((item, i) => {
             const img = new Image();
             img.onload = () => {
+                const w0 = img.naturalWidth || img.width, h0 = img.naturalHeight || img.height;
                 const cv = document.createElement("canvas");
-                cv.width = img.naturalWidth || img.width;
-                cv.height = img.naturalHeight || img.height;
-                cv.getContext("2d").drawImage(img, 0, 0);
+                cv.width = Math.max(1, Math.round(w0 * scaleFactor));
+                cv.height = Math.max(1, Math.round(h0 * scaleFactor));
+                cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
                 cv.toBlob(blob => {
                     if (blob) {
                         const dot = item.name.lastIndexOf(".");
                         const base = dot > 0 ? item.name.slice(0, dot) : item.name;
                         const a = document.createElement("a");
                         a.href = URL.createObjectURL(blob);
-                        a.download = `${base}_compressed.jpg`;
+                        a.download = scaleFactor < 1 ? `${base}_${Math.round(scaleFactor * 100)}percent.jpg` : `${base}_compressed.jpg`;
                         document.body.appendChild(a);
                         a.click();
                         document.body.removeChild(a);
