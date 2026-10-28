@@ -1932,8 +1932,60 @@ document.addEventListener("DOMContentLoaded", () => {
         return parsed;
     }
 
-    // 渲染单张图片的解析结果
-    function renderMetaView(file, meta) {
+    // 解析 PNG 文本块为可读文本（异步：压缩块需 zlib 解压）：
+    // tEXt: keyword\0text（Latin-1）
+    // iTXt: keyword\0 compressionFlag(1) compressionMethod(1) languageTag\0 translatedKeyword\0 text(UTF-8, 可 zlib 压缩)
+    // zTXt: keyword\0 compressionMethod(1) text(zlib 压缩, Latin-1)
+    // 返回 { keyword, value, isImportant }；isImportant 标记 AI 生成参数（提示词/Steps/Sampler 等）
+    async function parseTextChunk(c) {
+        try {
+            const p = c.payload;
+            const z = p.indexOf(0);
+            if (z < 0) return null;
+            const keyword = new TextDecoder("latin1").decode(p.slice(0, z));
+            let value = "";
+            if (c.type === "tEXt") {
+                value = new TextDecoder("latin1").decode(p.slice(z + 1));
+            } else if (c.type === "iTXt") {
+                const flag = p[z + 1], method = p[z + 2];
+                // languageTag\0 translatedKeyword\0 之后是正文
+                let q = z + 3;
+                const q1 = p.indexOf(0, q); if (q1 < 0) return null;
+                q = p.indexOf(0, q1 + 1); if (q < 0) return null;
+                let body = p.slice(q + 1);
+                if (flag === 1 && method === 0) {
+                    body = await inflateZlib(body);   // zlib（RFC1950）解压
+                }
+                value = new TextDecoder("utf-8").decode(body);
+            } else if (c.type === "zTXt") {
+                const method = p[z + 1];
+                if (method !== 0) return null;
+                value = new TextDecoder("latin1").decode(await inflateZlib(p.slice(z + 2)));
+            } else {
+                return null;
+            }
+            // 重要内容识别：AI 生成参数特征（提示词 / 采样参数 / NovelAI / StableDiffusion 等）
+            const importantHints = ["parameters", "prompt", "negative", "steps", "sampler", "seed", "novelai", "stable diffusion", "checkpoint", "lora", "cfg", "denois", "comment"];
+            const low = (keyword + "\n" + value.slice(0, 400)).toLowerCase();
+            const isImportant = importantHints.some(h => low.includes(h)) || value.length > 300;
+            return { keyword, value, isImportant };
+        } catch (e) {
+            return null;
+        }
+    }
+
+    // zlib 解压（浏览器原生 DecompressionStream("deflate") = RFC1950 zlib 格式）
+    // 返回 Promise<Uint8Array>；不支持的浏览器抛错由 parseTextChunk 捕获降级
+    async function inflateZlib(bytes) {
+        if (typeof DecompressionStream === "undefined") throw new Error("no DecompressionStream");
+        const ds = new DecompressionStream("deflate");
+        const stream = new Blob([bytes]).stream().pipeThrough(ds);
+        const buf = await new Response(stream).arrayBuffer();
+        return new Uint8Array(buf);
+    }
+
+    // 渲染单张图片的解析结果（异步：文本块可能需 zlib 解压）
+    async function renderMetaView(file, meta) {
         const wrap = document.createElement("div");
         wrap.className = "meta-view-file";
 
@@ -1975,23 +2027,50 @@ document.addEventListener("DOMContentLoaded", () => {
         const t2 = mkTable("拍摄参数", meta.exif);
         if (t2) out.push(t2);
 
-        // 文本块（tEXt/iTXt/zTXt，NovelAI 参数就在这里）
-        const textRows = [];
+        // 文本块（tEXt/iTXt/zTXt）完整解析：AI 绘图的提示词与生成参数都在这里
         for (const c of meta.textChunks) {
-            let val = "";
-            try {
-                if (c.type === "tEXt") {
-                    const z = c.payload.indexOf(0);
-                    val = new TextDecoder().decode(c.payload.slice(0, z)) + " = " +
-                          new TextDecoder().decode(c.payload.slice(z + 1, Math.min(c.payload.length, z + 1 + 800)));
-                } else {
-                    val = `[${c.type}] ${c.payload.length} 字节`;
-                }
-            } catch (e) { val = `[${c.type}] ${c.payload.length} 字节`; }
-            textRows.push([c.type, val]);
+            const parsed = await parseTextChunk(c);
+            if (!parsed) continue;
+            // 关键内容（提示词/生成参数）用大卡片展示：可展开收起，超长提供 txt 下载
+            const important = parsed.isImportant;
+            const shortText = parsed.value.length <= 200;
+            const holder = document.createElement("div");
+            holder.className = "meta-table-wrap";
+            let html = `<table class="meta-table"><tr><th style="width:96px;">${c.type}${parsed.keyword ? " · " + escapeHtml(parsed.keyword) : ""}</th>` +
+                `<th>${important ? "🎨 " : ""}内容（${parsed.value.length} 字符）</th></tr>` +
+                `<tr><td class="meta-k"></td><td class="meta-v"><div class="meta-text${important ? " meta-text-long" : ""}" ${shortText ? "" : 'data-clamped="1"'}>${escapeHtml(parsed.value)}</div>`;
+            if (!shortText) {
+                html += `<div class="meta-text-actions">` +
+                    `<button class="gm-reset-btn meta-text-toggle" type="button">展开全部</button>` +
+                    `<button class="gm-reset-btn meta-text-dl" type="button">⬇ 下载 txt</button></div>`;
+            }
+            html += `</td></tr></table>`;
+            holder.innerHTML = html;
+            // 展开/收起
+            const toggle = holder.querySelector(".meta-text-toggle");
+            if (toggle) {
+                toggle.addEventListener("click", () => {
+                    const div = holder.querySelector(".meta-text");
+                    const open = div.dataset.clamped === "1";
+                    div.dataset.clamped = open ? "0" : "1";
+                    toggle.textContent = open ? "收起" : "展开全部";
+                });
+            }
+            // 下载 txt
+            const dl = holder.querySelector(".meta-text-dl");
+            if (dl) {
+                dl.addEventListener("click", () => {
+                    const blob = new Blob([parsed.value], { type: "text/plain;charset=utf-8" });
+                    const a = document.createElement("a");
+                    a.href = URL.createObjectURL(blob);
+                    a.download = `${file.name.replace(/\.[^.]+$/, "")}_${c.type}${parsed.keyword ? "_" + parsed.keyword.replace(/[^\w.-]/g, "") : ""}.txt`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                });
+            }
+            out.push(holder);
         }
-        const t3 = mkTable("文本块", textRows);
-        if (t3) out.push(t3);
 
         if (!hasContent) {
             const n = document.createElement("div");
@@ -2009,7 +2088,8 @@ document.addEventListener("DOMContentLoaded", () => {
         for (const f of files.slice(0, 20)) {   // 最多展示 20 张，避免卡顿
             try {
                 const meta = await parseImageMeta(f);
-                renderMetaView(f, meta).forEach(el => box.appendChild(el));
+                const els = await renderMetaView(f, meta);
+                els.forEach(el => box.appendChild(el));
             } catch (e) { /* 单张失败跳过 */ }
         }
     }

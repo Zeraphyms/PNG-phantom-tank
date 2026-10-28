@@ -2103,6 +2103,31 @@ html.dark .cover-row {
   word-break: break-all;
 }
 
+/* 信息查看：长文本块（AI 提示词等）展开/收起 */
+.meta-table-wrap { margin-bottom: 8px; }
+
+.meta-text {
+  white-space: pre-wrap;
+  word-break: break-all;
+  line-height: 1.6;
+  max-height: none;
+  overflow: hidden;
+}
+
+.meta-text[data-clamped="1"] {
+  max-height: 8.5em;              /* 约 5 行：提示词存在但默认折叠 */
+  mask-image: linear-gradient(180deg, #000 65%, transparent 100%);
+  -webkit-mask-image: linear-gradient(180deg, #000 65%, transparent 100%);
+}
+
+.meta-text-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 6px;
+}
+
+.meta-text-actions .gm-reset-btn { font-size: 12px; }
+
 .meta-table tr.danger td {
   color: var(--danger);
 }
