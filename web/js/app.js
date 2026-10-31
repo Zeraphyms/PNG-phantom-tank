@@ -53,7 +53,9 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById("txt-feature-name").hidden = hasSubTabs;
         if (hasSubTabs) {
             applySubTabsForPage(targetId);   // 按页过滤子标签并回到第一项
-        } else {
+        } else if (isFeature) {
+            // 注意：回主页时 targetId 不在 FEATURE_PAGES 里，必须守卫，否则这里抛错
+            // 会中断 switchPage，房子图标的 hidden 之后的逻辑全不执行（回归 bug）
             document.getElementById("txt-feature-emoji").textContent = FEATURE_PAGES[targetId].emoji;
             document.getElementById("txt-feature-text").textContent = FEATURE_PAGES[targetId].name;
         }
