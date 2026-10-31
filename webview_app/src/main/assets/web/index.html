@@ -1,0 +1,1202 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>APNG 图片伪装工具 - 前端网页版</title>
+  <meta name="theme-color" content="#2563EB">
+  <script>
+    (function () {
+      var saved = null;
+      try { saved = localStorage.getItem("png_web_theme"); } catch (e) {}
+      var dark = saved ? saved === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
+      document.documentElement.classList.toggle("dark", !!dark);
+    })();
+  </script>
+  <link rel="stylesheet" href="css/style.css?v=1.5.8.3">
+</head>
+<body>
+
+<div class="app-container">
+  <!-- 头部 -->
+  <header class="app-header">
+    <div class="app-header-inner">
+      <button id="btn-menu-more" class="icon-btn" aria-label="更多功能" aria-haspopup="true" aria-expanded="false">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      </button>
+      <div class="app-head-center">
+        <div class="app-title">APNG 伪装工具</div>
+        <div class="app-badge">Web v1.5.8</div>
+      </div>
+      <div class="app-header-actions">
+        <button id="btn-header-home" class="icon-btn" aria-label="回到主页" title="回到主页" hidden>
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5L12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M10 21v-6h4v6"/></svg>
+        </button>
+        <button id="btn-theme" class="icon-btn" aria-label="切换夜间模式">
+          <svg class="icon-sun" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 3v2m0 14v2M3 12h2m14 0h2M6.3 6.3l1.4 1.4m8.6 8.6l1.4 1.4M17.7 6.3l-1.4 1.4M7.7 17.7l-1.4 1.4"/></svg>
+          <svg class="icon-moon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20.4 15.4A9 9 0 1 1 8.6 3.6a9 9 0 0 0 11.8 11.8z"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- 更多功能菜单 -->
+  <div id="menu-more" class="menu-sheet" hidden>
+    <div class="menu-sheet-title">更多功能</div>
+    <button class="menu-item" data-tab="page-split">
+      <span class="menu-item-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18"/></svg></span>
+      <span class="menu-item-text"><strong>拆解动图</strong><em>把 GIF 逐帧拆成 PNG</em></span>
+    </button>
+    <button class="menu-item" data-tab="page-chaos">
+      <span class="menu-item-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"/></svg></span>
+      <span class="menu-item-text"><strong>图片混淆</strong><em>曲线置换混淆，可无损还原</em></span>
+    </button>
+    <button class="menu-item" data-tab="page-clean">
+      <span class="menu-item-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M6 6l1 14h10l1-14"/><path d="M10 11v5M14 11v5"/></svg></span>
+      <span class="menu-item-text"><strong>信息处理</strong><em>抹除/查看元数据与 NovelAI 提示词</em></span>
+    </button>
+    <button class="menu-item" data-tab="page-weathering">
+      <span class="menu-item-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c.5 2.5-1.5 4.5-3 6-1.7 1.7-3 3.2-3 5.5A6 6 0 0 0 12 21a6 6 0 0 0 6-6.5c0-2.3-1.3-3.8-3-5.5-1.5-1.5-3.5-3.5-3-6z"/></svg></span>
+      <span class="menu-item-text"><strong>电子包浆</strong><em>一键做旧，仿老图泛绿噪点效果</em></span>
+    </button>
+    <button class="menu-item" data-tab="page-merge">
+      <span class="menu-item-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="18" rx="1.5"/><rect x="14" y="3" width="7" height="18" rx="1.5"/></svg></span>
+      <span class="menu-item-text"><strong>图片处理</strong><em>拼接 / 网格 / 九宫格切图 / 覆盖 / 证件照</em></span>
+    </button>
+    <button class="menu-item" data-tab="page-md5">
+      <span class="menu-item-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3v6h6"/><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M9 13h6M9 17h6"/></svg></span>
+      <span class="menu-item-text"><strong>图片工具</strong><em>MD5 增改 / 图片压缩 / 格式转换</em></span>
+    </button>
+  </div>
+
+  <!-- Tab 栏（主 Tab / 功能模式两种状态） -->
+  <div class="tab-container">
+    <div class="tab-bar" id="main-tab-bar">
+      <button class="tab-btn active" data-tab="page-disguise">图片伪装</button>
+      <button class="tab-btn" data-tab="page-restore">还原真图</button>
+      <button class="tab-btn" data-tab="page-history">历史记录</button>
+      <button class="tab-btn" data-tab="page-help">使用说明</button>
+    </div>
+    <div class="tab-bar feature-bar" id="feature-tab-bar" hidden>
+      <div class="feature-bar-title" id="txt-feature-name"><span class="feature-name-wrap"><span class="feature-name-emoji" id="txt-feature-emoji"></span><span id="txt-feature-text">功能</span></span></div>
+      <div class="segmented feature-sub-tabs" id="merge-sub-tabs" hidden>
+        <button class="segmented-btn" data-sub="merge">图片拼接</button>
+        <button class="segmented-btn" data-sub="gridmerge">网格拼接</button>
+        <button class="segmented-btn" data-sub="grid">九宫格切图</button>
+        <button class="segmented-btn" data-sub="overlay">覆盖图片</button>
+        <button class="segmented-btn" data-sub="idphoto">相片处理</button>
+        <button class="segmented-btn" data-sub="md5hash">MD5 哈希</button>
+        <button class="segmented-btn" data-sub="imgcompress">图片压缩</button>
+        <button class="segmented-btn" data-sub="imgconvert">格式转换</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 内容区 -->
+  <main class="content-area">
+
+    <!-- PAGE 1: 图片伪装 -->
+    <section id="page-disguise" class="tab-page active">
+      <!-- 1. 选择真实图片 -->
+      <div class="card">
+        <div class="card-title"><span class="step-badge">1</span><span class="title-text">选择要伪装的真实图片</span></div>
+        <div class="card-desc">支持单张或批量多选 JPG、PNG、WEBP 静态图与 GIF 动图</div>
+        <div class="upload-box" id="box-src-upload">
+          <input type="file" id="input-src-images" accept="image/*" multiple style="display: none;">
+          <div class="upload-icon">🖼️</div>
+          <div class="upload-text">点击或拖拽图片到这里 (可多选)</div>
+          <div class="upload-hint">手机相册中支持长按批量多选</div>
+          <img id="img-src-preview" class="file-preview-img" alt="原图预览">
+        </div>
+        <div id="badge-src-info" class="file-info-badge"></div>
+      </div>
+
+      <!-- 2. 伪装封面设置 -->
+      <div class="card">
+        <div class="card-title">
+          <span class="step-badge">2</span>
+          <span class="title-text">伪装封面</span>
+          <span class="title-actions">
+            <button id="btn-cover-settings" class="icon-btn-sm" aria-label="封面设置" aria-haspopup="true" aria-expanded="false" title="封面设置">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            </button>
+            <button id="btn-reset-cover" class="btn-outline">恢复默认</button>
+          </span>
+        </div>
+        <div class="cover-row">
+          <img id="img-cover-thumb" class="cover-thumb" src="assets/default_cover.png" alt="封面">
+          <div class="cover-info">
+            <div id="txt-cover-status" class="cover-status">内置默认封面</div>
+            <div class="cover-btns">
+              <input type="file" id="input-custom-cover" accept="image/*" style="display: none;">
+              <button id="btn-pick-cover" class="btn-outline">更换自定义封面</button>
+              <button id="btn-save-cover" class="btn-outline">💾 保存当前封面</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 封面设置浮层 -->
+        <div id="cover-settings-pop" class="cover-settings-pop" hidden>
+          <div class="cover-settings-head">
+            <span class="cover-settings-title">封面设置</span>
+            <button id="btn-cover-settings-close" class="icon-btn-sm" aria-label="关闭" title="关闭">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+            </button>
+          </div>
+          <div class="switch-row">
+            <span class="switch-row-text">
+              <span class="switch-row-title">防吞<button type="button" class="switch-row-badge" id="btn-anti-swallow-info" title="查看实现原理">测试功能</button></span>
+              <span class="switch-row-desc">让每次生成的封面略有不同，降低被聊天软件判重"吞图"的概率。若无效请去 GitHub 仓库反馈。</span>
+            </span>
+            <span class="switch">
+              <input type="checkbox" id="chk-anti-swallow">
+              <span class="switch-slider"></span>
+            </span>
+          </div>
+          <div class="switch-row">
+            <span class="switch-row-text">
+              <span class="switch-row-title">保留原图元数据</span>
+              <span class="switch-row-desc">保留 EXIF 拍摄信息 / 位置 / NovelAI 提示词参数（默认去除）。</span>
+            </span>
+            <span class="switch">
+              <input type="checkbox" id="chk-keep-meta">
+              <span class="switch-slider"></span>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. 补齐底色设置 -->
+      <div class="card">
+        <div class="card-title">
+          <span class="step-badge">3</span>
+          <span class="title-text">封面补齐底色</span>
+          <span id="txt-selected-color-name" style="color: var(--primary); font-size: 12px; font-weight: 700;">柔和白</span>
+        </div>
+        <div class="card-desc">当原图尺寸大于或宽高比不同于封面时，四周将使用所选底色进行留白补齐：</div>
+        <div class="color-selector">
+          <div class="color-item" data-color="#000000" data-name="纯黑色" data-key="black">
+            <div class="color-dot" style="background: #000000;"></div>
+            <div class="color-label">黑色</div>
+          </div>
+          <div class="color-item selected" data-color="#f4f4f6" data-name="柔和白" data-key="white">
+            <div class="color-dot" style="background: #f4f4f6;"></div>
+            <div class="color-label">白色</div>
+          </div>
+          <div class="color-item" data-color="#EF4444" data-name="喜庆红" data-key="red">
+            <div class="color-dot" style="background: #EF4444;"></div>
+            <div class="color-label">红色</div>
+          </div>
+          <div class="color-item" data-color="#10B981" data-name="护眼绿" data-key="green">
+            <div class="color-dot" style="background: #10B981;"></div>
+            <div class="color-label">绿色</div>
+          </div>
+          <div class="color-item" data-color="#2563EB" data-name="经典蓝" data-key="blue">
+            <div class="color-dot" style="background: #2563EB;"></div>
+            <div class="color-label">蓝色</div>
+          </div>
+          <div class="color-item" data-color="#FACC15" data-name="明亮黄" data-key="yellow">
+            <div class="color-dot" style="background: #FACC15;"></div>
+            <div class="color-label">黄色</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 伪装按钮 -->
+      <button id="btn-do-disguise" class="btn-primary-large">⚡ 立即生成 APNG 伪装图片</button>
+
+      <!-- 伪装结果展示 -->
+      <div id="card-disguise-result" class="card result-card">
+        <div class="card-title" id="txt-disguise-title">🎉 伪装生成成功 (双重视角预览)</div>
+        <div class="preview-grid">
+          <div class="preview-box">
+            <div class="preview-box-title">对方视角(聊天列表/缩略图)</div>
+            <img id="img-result-cover" class="preview-img" alt="对方视角">
+          </div>
+          <div class="preview-box">
+            <div class="preview-box-title">真实内容(点开/还原所见)</div>
+            <img id="img-result-real" class="preview-img" alt="真实内容">
+          </div>
+        </div>
+        <div id="txt-disguise-summary" class="card-desc" style="margin-top: 10px; margin-bottom: 0;"></div>
+        <div class="action-row">
+          <button id="btn-download-disguise" class="btn-primary-large" style="margin-top: 0;">💾 全部下载保存</button>
+          <button id="btn-share-disguise" class="btn-outline">🚀 调用系统分享</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- PAGE 2: 还原真图 -->
+    <section id="page-restore" class="tab-page">
+      <div class="card">
+        <div class="card-title"><span class="step-badge">1</span><span class="title-text">选择收到的伪装图片</span></div>
+        <div class="card-desc">选择在聊天软件中保存下来的伪装 .png 文件进行提取还原</div>
+        <div class="upload-box" id="box-restore-upload">
+          <input type="file" id="input-restore-images" accept="image/*" multiple style="display: none;">
+          <div class="upload-icon">🔍</div>
+          <div class="upload-text">点击或拖拽伪装文件到这里</div>
+          <div class="upload-hint">支持一次性选择多个伪装图片文件批量提取</div>
+          <img id="img-restore-src-preview" class="file-preview-img" alt="已选预览">
+        </div>
+        <div id="badge-restore-info" class="file-info-badge"></div>
+      </div>
+
+      <!-- 还原按钮 -->
+      <button id="btn-do-restore" class="btn-primary-large">🔍 立即还原真实图片 / 动图</button>
+
+      <!-- 还原结果展示 -->
+      <div id="card-restore-result" class="card result-card">
+        <div class="card-title" id="txt-restore-title">✨ 成功提取还原真实图片</div>
+        <div style="text-align: center; margin-top: 10px;">
+          <img id="img-restored-preview" class="preview-img zoomable" style="height: 200px;" alt="还原真图" title="点击查看大图">
+        </div>
+        <div id="txt-restore-summary" class="card-desc" style="margin-top: 10px; margin-bottom: 0;"></div>
+        <div class="action-row">
+          <button id="btn-download-restored" class="btn-primary-large" style="margin-top: 0;">💾 全部下载到本地</button>
+          <button id="btn-share-restored" class="btn-outline">🚀 调用系统分享</button>
+        </div>
+
+        <!-- 附带：伪装图封面 -->
+        <div id="restore-cover-section" class="restore-cover-section">
+          <div class="restore-cover-head">
+            <span class="restore-cover-title">伪装封面</span>
+            <span class="restore-cover-hint">这张伪装图对外显示的封面图 · 点图可看大图</span>
+          </div>
+          <div class="restore-cover-body">
+            <img id="img-restore-cover" class="restore-cover-thumb zoomable" alt="伪装封面" title="点击查看大图">
+            <button id="btn-download-cover" class="btn-outline">💾 保存封面图</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- PAGE 3: 拆解动图 -->
+    <section id="page-split" class="tab-page">
+      <div class="card">
+        <div class="card-title"><span class="step-badge">1</span><span class="title-text">拆解 GIF 动图</span></div>
+        <div class="card-desc">将 GIF 动图逐帧拆解为 PNG 图片，可一键保存全部帧</div>
+        <div class="upload-box" id="box-split-upload">
+          <input type="file" id="input-split-images" accept="image/gif,.gif" multiple style="display: none;">
+          <div class="upload-icon">🎞️</div>
+          <div class="upload-text">点击或拖拽 GIF 动图到这里</div>
+          <div class="upload-hint">支持一次性选择多个 GIF 动图批量拆解</div>
+          <img id="img-split-src-preview" class="file-preview-img" alt="动图预览">
+        </div>
+        <div id="badge-split-info" class="file-info-badge"></div>
+      </div>
+
+      <button id="btn-do-split" class="btn-primary-large">✂️ 立即拆解 GIF 动图</button>
+
+      <div id="card-split-result" class="card result-card">
+        <div class="card-title" id="txt-split-title">✂️ 动图拆解完成</div>
+        <div id="split-frame-grid" class="split-frame-grid"></div>
+        <div id="txt-split-summary" class="card-desc" style="margin-top: 10px; margin-bottom: 0;"></div>
+        <div class="action-row">
+          <button id="btn-download-split" class="btn-primary-large" style="margin-top: 0;">💾 一键保存全部帧</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- PAGE 4: 历史记录 -->
+    <section id="page-history" class="tab-page">
+      <div class="card">
+        <div class="card-title">
+          <span class="title-text">本地离线缓存管理</span>
+          <span class="title-actions">
+            <button id="btn-select-history" class="btn-outline">选择</button>
+            <button id="btn-clear-history" class="btn-outline btn-outline-danger">清空所有记录</button>
+          </span>
+        </div>
+        <div id="txt-history-stat" class="card-desc" style="margin-bottom: 0;">当前已记录 0 个文件 (占用 0 B 浏览器本地存储)</div>
+      </div>
+
+      <div id="list-history-container">
+        <!-- 动态渲染历史列表 -->
+      </div>
+
+      <div id="history-selection-bar" class="history-selection-bar" hidden>
+        <span id="txt-history-selected" class="history-selection-text">已选 0 项</span>
+        <div class="history-selection-actions">
+          <button id="btn-history-select-all" class="btn-outline">全选</button>
+          <button id="btn-history-delete-selected" class="btn-outline btn-outline-danger">删除所选</button>
+          <button id="btn-history-select-cancel" class="btn-outline">取消</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- PAGE 5: 使用说明 -->
+    <section id="page-help" class="tab-page">
+      <div class="card">
+        <div class="card-title"><span class="title-text">开发者与开源项目</span></div>
+        <div class="card-desc" style="margin-top: 6px;">
+          本项目由 Zeraphyms 所制<br>
+          GitHub 仓库: <a href="https://github.com/Zeraphyms/PNG-phantom-tank" target="_blank" style="color: #2563EB;">https://github.com/Zeraphyms/PNG-phantom-tank</a>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><span class="title-text">工作原理</span></div>
+        <div class="card-desc" style="margin-top: 6px; line-height: 1.6;">
+          本工具采用 <strong>APNG (Animated Portable Network Graphics) 特殊隐写机制</strong>：<br>
+          • <strong>默认静止帧 (IDAT)</strong>：写入伪装封面图片。<br>
+          • <strong>隐藏动画帧 (fcTL+fdAT)</strong>：写入你的真实原图或动态 GIF。<br>
+          • 聊天软件在相册缩略列表中只能看到封面；对方点开或使用本工具点击「还原真图」即可查看和提取完整真实内容。
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title" style="color: var(--danger);"><span class="title-text">发送到 QQ / 微信重要提醒</span></div>
+        <div class="card-desc" style="margin-top: 6px; line-height: 1.6; color: #475569;">
+          • QQ/微信以默认「普通图片」方式发送会进行二次有损转码，剔除动画扩展帧导致隐藏内容丢失！<br>
+          • <strong>正确发送方式</strong>：<br>
+          1. 手机 QQ 发图时务必勾选<strong>【原图】</strong>；或点击加号以<strong>【文件】</strong>形式发送 .png 文件。<br>
+          2. 对方保存文件后打开本网页点击「还原真图」，即可无损提取出原图 / 动图！
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><span class="title-text">纯本地安全与隐私</span></div>
+        <div class="card-desc" style="margin-top: 6px; color: #059669;">
+          • 100% 纯本地浏览器端处理，所有图片合成与还原均在您的手机/电脑内存中完成，<strong>绝不上载任何外部服务器</strong>，安全保密。
+        </div>
+      </div>
+    </section>
+
+    <!-- PAGE 6: 图片混淆 -->
+    <section id="page-chaos" class="tab-page">
+      <div class="card">
+        <div class="card-title">
+          <span class="step-badge">1</span>
+          <span class="title-text">选择图片</span>
+          <span class="title-actions">
+            <button id="btn-chaos-mode" class="btn-outline">切换多图模式</button>
+          </span>
+        </div>
+        <div class="card-desc">支持 JPG、PNG、WEBP 等常见格式，超过 2000 万像素或单边超 6000 像素会自动等比缩小</div>
+        <label class="meta-toggle" id="wrap-chaos-noscale">
+          <input type="checkbox" id="chk-chaos-noscale">
+          <span class="meta-toggle-text"><span class="warn-badge">!</span>不缩小（按原图尺寸处理）：超大图会占用大量内存，可能导致浏览器卡顿甚至崩溃，请谨慎选择</span>
+        </label>
+        <div class="upload-box" id="box-chaos-upload">
+          <input type="file" id="input-chaos-image" accept="image/*" style="display: none;">
+          <div class="upload-icon">🌀</div>
+          <div class="upload-text">点击或拖拽图片到这里</div>
+          <div class="upload-hint">处理全程在本地浏览器完成，不上传任何服务器</div>
+          <img id="img-chaos-preview" class="file-preview-img" alt="原图预览">
+        </div>
+        <div id="badge-chaos-info" class="file-info-badge"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><span class="step-badge">2</span><span class="title-text">处理方式</span></div>
+        <div class="card-desc">混淆可叠加多次；若图片被混淆过，需要相同次数的解混淆才能还原</div>
+        <div class="segmented" id="chaos-mode-group" role="group" aria-label="处理方式">
+          <button class="segmented-btn active" data-mode="enc">混淆</button>
+          <button class="segmented-btn" data-mode="dec">解混淆</button>
+        </div>
+        <div class="chaos-preview-row" id="chaos-single-preview-row">
+          <div class="chaos-preview-box">
+            <div class="chaos-preview-title" id="txt-chaos-label-out">处理结果</div>
+            <div class="chaos-preview-frame">
+              <img id="img-chaos-out" class="preview-img zoomable" alt="处理结果" title="点击查看大图" hidden>
+              <span class="chaos-preview-empty" id="chaos-empty-out">待处理</span>
+            </div>
+          </div>
+        </div>
+        <div class="action-row">
+          <button id="btn-chaos-run" class="btn-primary-large" style="margin-top: 0;">🌀 立即处理</button>
+          <button id="btn-chaos-reset" class="btn-outline" style="flex: 0 0 auto;">还原为原图</button>
+        </div>
+        <div id="txt-chaos-summary" class="card-desc" style="margin-top: 10px; margin-bottom: 0;"></div>
+        <div class="action-row" id="chaos-result-actions" style="display: none;">
+          <button id="btn-chaos-download" class="btn-primary-large" style="margin-top: 0;">💾 保存结果图片</button>
+        </div>
+      </div>
+
+      <div class="card" id="card-chaos-batch" style="display: none;">
+        <div class="card-title" id="txt-chaos-batch-title">🌀 多图批量处理结果</div>
+        <div id="chaos-batch-grid" class="split-frame-grid"></div>
+        <div id="txt-chaos-batch-summary" class="card-desc" style="margin-top: 10px; margin-bottom: 0;"></div>
+        <div class="action-row">
+          <button id="btn-chaos-batch-download" class="btn-primary-large" style="margin-top: 0;">💾 一键保存全部结果</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- PAGE 7: 清除信息 -->
+    <section id="page-clean" class="tab-page">
+      <div class="card">
+        <div class="card-title"><span class="step-badge">1</span><span class="title-text">选择图片</span></div>
+        <div class="card-desc">支持 JPG、PNG、WEBP 等常见格式，可多选 / 多张拖入；下方「信息清除」与「信息查看」共用这里的图片</div>
+        <div class="upload-box" id="box-clean-upload">
+          <input type="file" id="input-clean-image" accept="image/*" multiple style="display: none;">
+          <div class="upload-icon">🧹</div>
+          <div class="upload-text">点击或拖拽图片到这里</div>
+          <div class="upload-hint">处理全程在本地浏览器完成，不上传任何服务器</div>
+          <img id="img-clean-preview" class="file-preview-img" alt="原图预览">
+        </div>
+        <div id="badge-clean-info" class="file-info-badge"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><span class="step-badge">2</span><span class="title-text">信息清除</span></div>
+        <div class="card-desc">移除图片中的 EXIF 拍摄信息、GPS 位置、NovelAI 提示词参数等隐藏信息，输出一张干净的图片（画面内容不变）。</div>
+        <div class="action-row">
+          <button id="btn-clean-run" class="btn-primary-large" style="margin-top: 0;">🧹 立即清除信息</button>
+        </div>
+        <div id="txt-clean-summary" class="card-desc" style="margin-top: 10px; margin-bottom: 0;"></div>
+        <div class="action-row" id="clean-result-actions" style="display: none;">
+          <button id="btn-clean-download" class="btn-primary-large" style="margin-top: 0;">💾 全部下载保存</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><span class="step-badge">3</span><span class="title-text">信息查看</span></div>
+        <div class="card-desc">解析图片里隐藏的 EXIF 拍摄信息与 GPS 位置（浏览器本地解析，不上传）。选中图片后自动刷新。</div>
+        <div id="meta-view-result"></div>
+      </div>
+    </section>
+
+    <!-- PAGE 8: 电子包浆 -->
+    <section id="page-weathering" class="tab-page">
+      <div class="card">
+        <div class="card-title"><span class="step-badge">1</span><span class="title-text">选择图片</span></div>
+        <div class="card-desc">支持 JPG、PNG、WEBP 等常见格式，做旧处理（噪点 / 泛绿 / 压缩 / 缩放）全程在本地完成</div>
+        <div class="upload-box" id="box-ew-upload">
+          <input type="file" id="input-ew-image" accept="image/*" style="display: none;">
+          <div class="upload-icon">🏺</div>
+          <div class="upload-text">点击或拖拽图片到这里</div>
+          <div class="upload-hint">包浆效果仿老图，不可逆，请保留好原图</div>
+          <img id="img-ew-preview" class="file-preview-img" alt="原图预览">
+        </div>
+        <div id="badge-ew-info" class="file-info-badge"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><span class="step-badge">2</span><span class="title-text">包浆模式与参数</span></div>
+        <div class="card-desc">官窑效果更自然（逐像素 YUV 误差累积，慢）；民窑速度更快（矩阵混合，效果生硬一些）</div>
+        <div class="segmented" id="ew-mode-group" role="group" aria-label="包浆模式">
+          <button class="segmented-btn active" data-mode="classic">官窑 (慢·效果好)</button>
+          <button class="segmented-btn" data-mode="ng">民窑 (快)</button>
+        </div>
+        <div class="segmented" id="ew-preset-group" role="group" aria-label="包浆程度" style="margin-top: 10px;">
+          <button class="segmented-btn" data-preset="low">元青花</button>
+          <button class="segmented-btn active" data-preset="medium">唐三彩</button>
+          <button class="segmented-btn" data-preset="high">兵马俑</button>
+          <button class="segmented-btn" data-preset="custom">自定义朝代</button>
+        </div>
+
+        <div class="ew-slider-row">
+          <span class="ew-slider-label">噪点</span>
+          <input type="range" id="ew-slider-noise" class="ew-slider" min="0" max="0.2" step="0.005" value="0.02">
+          <span class="ew-slider-val" id="ew-val-noise">2%</span>
+        </div>
+        <div class="ew-slider-row">
+          <span class="ew-slider-label">泛绿</span>
+          <input type="range" id="ew-slider-green" class="ew-slider" min="0" max="0.3" step="0.005" value="0.1">
+          <span class="ew-slider-val" id="ew-val-green">10%</span>
+        </div>
+        <div class="ew-slider-row">
+          <span class="ew-slider-label">压缩</span>
+          <input type="range" id="ew-slider-quality" class="ew-slider" min="0" max="0.95" step="0.01" value="0.85">
+          <span class="ew-slider-val" id="ew-val-quality">85%</span>
+        </div>
+        <div class="ew-slider-row">
+          <span class="ew-slider-label">缩放</span>
+          <input type="range" id="ew-slider-scale" class="ew-slider" min="0.1" max="1" step="0.05" value="1">
+          <span class="ew-slider-val" id="ew-val-scale">100%</span>
+        </div>
+
+        <label class="meta-toggle">
+          <input type="checkbox" id="chk-ew-watermark">
+          <span class="meta-toggle-text">添加水印（右下角叠知乎/微博/贴吧/头条标识，图片需 ≥240×120）</span>
+        </label>
+
+        <div class="action-row" style="margin-top: 12px;">
+          <button id="btn-ew-run" class="btn-primary-large" style="margin-top: 0;">🏺 立即包浆</button>
+          <button id="btn-ew-revert" class="btn-outline" style="flex: 0 0 auto;">还原为原图</button>
+        </div>
+        <div id="txt-ew-summary" class="card-desc" style="margin-top: 10px; margin-bottom: 0;"></div>
+      </div>
+
+      <div class="card" id="card-ew-result" style="display: none;">
+        <div class="card-title" id="txt-ew-result-title">🏺 包浆完成</div>
+        <div class="chaos-preview-row">
+          <div class="chaos-preview-box">
+            <div class="chaos-preview-title">包浆成品</div>
+            <div class="chaos-preview-frame">
+              <img id="img-ew-out" class="preview-img zoomable" alt="包浆成品" title="点击查看大图" hidden>
+              <span class="chaos-preview-empty" id="ew-empty-out">待处理</span>
+            </div>
+          </div>
+        </div>
+        <div class="action-row">
+          <button id="btn-ew-download" class="btn-primary-large" style="margin-top: 0;">💾 保存包浆图片</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- PAGE 9: 图片处理（拼接 / 九宫格切图） -->
+    <section id="page-merge" class="tab-page">
+      <!-- 子面板 1: 图片拼接 -->
+      <div id="panel-merge-merge" class="merge-sub-panel">
+      <div class="card">
+        <div class="card-title"><span class="step-badge">1</span><span class="title-text">选择图片</span></div>
+        <div class="card-desc">支持 JPG、PNG、WEBP 等常见格式，可多选 / 多张拖入，按选择顺序拼接</div>
+        <div class="upload-box" id="box-merge-upload">
+          <input type="file" id="input-merge-image" accept="image/*" multiple style="display: none;">
+          <div class="upload-icon">🧩</div>
+          <div class="upload-text">点击或拖拽图片到这里 (可多选)</div>
+          <div class="upload-hint">拼接全程在本地浏览器完成，不上传任何服务器</div>
+          <img id="img-merge-preview" class="file-preview-img" alt="原图预览">
+        </div>
+        <div id="badge-merge-info" class="file-info-badge"></div>
+        <div id="merge-file-list" class="merge-file-list"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><span class="step-badge">2</span><span class="title-text">拼接设置</span></div>
+        <div class="segmented" id="merge-direction-group" role="group" aria-label="拼接方向">
+          <button class="segmented-btn active" data-dir="v">竖向拼接</button>
+          <button class="segmented-btn" data-dir="h">横向拼接</button>
+        </div>
+
+        <div class="ew-slider-row">
+          <span class="ew-slider-label">间距</span>
+          <input type="range" id="merge-slider-gap" class="ew-slider" min="0" max="200" step="1" value="0">
+          <span class="ew-slider-val" id="merge-val-gap">0px</span>
+        </div>
+        <div class="ew-slider-row">
+          <span class="ew-slider-label">边距</span>
+          <input type="range" id="merge-slider-margin" class="ew-slider" min="0" max="200" step="1" value="0">
+          <span class="ew-slider-val" id="merge-val-margin">0px</span>
+        </div>
+        <div class="ew-slider-row">
+          <span class="ew-slider-label">圆角</span>
+          <input type="range" id="merge-slider-radius" class="ew-slider" min="0" max="150" step="1" value="0">
+          <span class="ew-slider-val" id="merge-val-radius">0px</span>
+          <div class="segmented merge-radius-mode" id="merge-radius-mode-group" role="group" aria-label="圆角应用对象">
+            <button class="segmented-btn active" data-radius-mode="each">单图</button>
+            <button class="segmented-btn" data-radius-mode="whole">整图</button>
+          </div>
+        </div>
+
+        <div class="ew-slider-row">
+          <span class="ew-slider-label">背景</span>
+          <div class="merge-bg-row" id="merge-bg-group">
+            <button class="merge-bg-btn" data-bg="#FFFFFF" style="background:#FFFFFF;" title="白"></button>
+            <button class="merge-bg-btn" data-bg="#000000" style="background:#000000;" title="黑"></button>
+            <button class="merge-bg-btn" data-bg="#F5F5F5" style="background:#F5F5F5;" title="浅灰"></button>
+            <button class="merge-bg-btn" data-bg="#2B2B2B" style="background:#2B2B2B;" title="深灰"></button>
+            <button class="merge-bg-btn active" data-bg="transparent" style="background-image:linear-gradient(45deg,#ccc 25%,transparent 25%,transparent 75%,#ccc 75%),linear-gradient(45deg,#ccc 25%,transparent 25%,transparent 75%,#ccc 75%);background-size:8px 8px;background-position:0 0,4px 4px;" title="透明"></button>
+          </div>
+        </div>
+
+        <div class="card-desc" style="margin-top: 12px;">尺寸对齐（竖拼统一宽度 / 横拼统一高度）</div>
+        <div class="segmented" id="merge-unify-group" role="group" aria-label="尺寸对齐" style="margin-top: 6px;">
+          <button class="segmented-btn" data-unify="none">原始尺寸</button>
+          <button class="segmented-btn" data-unify="min">最小化</button>
+          <button class="segmented-btn active" data-unify="max">最大化</button>
+        </div>
+        <div class="card-desc" style="margin-top: 6px; font-size: 11.5px;">
+          最小化：以最小的宽度/高度为基准统一缩小，避免放大导致模糊；最大化：以最大的为基准统一放大，尺寸更整齐（分辨率接近时推荐）
+        </div>
+      </div>
+
+      <div class="card" id="card-merge-result" style="display: none;">
+        <div class="card-title">🧩 拼接预览</div>
+        <div class="card-desc" id="txt-merge-summary">调整参数实时更新</div>
+        <div class="merge-preview-frame">
+          <canvas id="canvas-merge-out" class="merge-preview-canvas" hidden></canvas>
+          <span class="chaos-preview-empty" id="merge-empty-out">待拼接</span>
+        </div>
+        <div class="action-row">
+          <button id="btn-merge-download" class="btn-primary-large" style="margin-top: 0;">💾 保存拼接图片</button>
+        </div>
+      </div>
+      </div>
+
+      <!-- 子面板 1.5: 网格拼接 -->
+      <div id="panel-merge-gridmerge" class="merge-sub-panel" hidden>
+        <div class="card">
+          <div class="card-title"><span class="step-badge">1</span><span class="title-text">选择图片</span></div>
+          <div class="card-desc">可多选 / 多张拖入，网格排列顺序 = 列表顺序（1→行优先填入），可拖拽调整</div>
+          <div class="upload-box" id="box-gm-upload">
+            <input type="file" id="input-gm-image" accept="image/*" multiple style="display: none;">
+            <div class="upload-icon">🔲</div>
+            <div class="upload-text">点击或拖拽图片到这里 (可多选)</div>
+            <div class="upload-hint">处理全程在本地浏览器完成，不上传任何服务器</div>
+            <img id="img-gm-preview" class="file-preview-img" alt="原图预览">
+          </div>
+          <div id="badge-gm-info" class="file-info-badge"></div>
+          <div id="gm-file-list" class="merge-file-list"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span class="step-badge">2</span><span class="title-text">网格设置</span>
+            <span class="title-actions">
+              <div class="segmented merge-radius-mode" id="gm-orient-group" role="group" aria-label="切图方向">
+                <button class="segmented-btn active" data-orient="h">横切</button>
+                <button class="segmented-btn" data-orient="v">竖切</button>
+              </div>
+            </span>
+          </div>
+
+          <div class="card-desc">选择等分份数，再点击格子间的边缘合并出想要的拼版（L 形不可合并）</div>
+          <div class="segmented" id="gm-divide-group" role="group" aria-label="等分份数">
+            <button class="segmented-btn" data-divide="2">2 份</button>
+            <button class="segmented-btn" data-divide="4">4 份</button>
+            <button class="segmented-btn active" data-divide="6">6 份</button>
+            <button class="segmented-btn" data-divide="8">8 份</button>
+            <button class="segmented-btn" data-divide="9">9 份</button>
+            <button class="segmented-btn" data-divide="16">16 份</button>
+          </div>
+
+          <div class="gm-editor-wrap" id="gm-editor-wrap">
+            <div class="gm-mode-row">
+              <div class="segmented merge-radius-mode" id="gm-tool-group" role="group" aria-label="编辑模式">
+                <button class="segmented-btn active" data-tool="merge">合并模式</button>
+                <button class="segmented-btn" data-tool="split">细分模式</button>
+              </div>
+              <span class="gm-mode-hint" id="txt-gm-mode-hint">先点一个块，再点相邻块合并</span>
+            </div>
+            <div id="gm-editor-grid" class="gm-editor-grid"></div>
+            <div id="gm-split-pop" class="gm-split-pop" hidden></div>
+            <div class="gm-editor-tip"><button type="button" id="btn-gm-undo" class="gm-reset-btn">撤回</button> · <button type="button" id="btn-gm-reset" class="gm-reset-btn">重置布局</button></div>
+          </div>
+
+          <div class="ew-slider-row">
+            <span class="ew-slider-label">间距</span>
+            <input type="range" id="gm-slider-gap" class="ew-slider" min="0" max="100" step="1" value="0">
+            <span class="ew-slider-val" id="gm-val-gap">0px</span>
+          </div>
+          <div class="ew-slider-row">
+            <span class="ew-slider-label">外边框</span>
+            <input type="range" id="gm-slider-margin" class="ew-slider" min="0" max="100" step="1" value="0">
+            <span class="ew-slider-val" id="gm-val-margin">0px</span>
+          </div>
+          <div class="ew-slider-row">
+            <span class="ew-slider-label">圆角</span>
+            <input type="range" id="gm-slider-radius" class="ew-slider" min="0" max="100" step="1" value="0">
+            <span class="ew-slider-val" id="gm-val-radius">0px</span>
+          </div>
+
+          <div class="ew-slider-row">
+            <span class="ew-slider-label">背景</span>
+            <div class="merge-bg-row" id="gm-bg-group">
+              <button class="merge-bg-btn active" data-bg="#FFFFFF" style="background:#FFFFFF;" title="白"></button>
+              <button class="merge-bg-btn" data-bg="#000000" style="background:#000000;" title="黑"></button>
+              <button class="merge-bg-btn" data-bg="#F5F5F5" style="background:#F5F5F5;" title="浅灰"></button>
+              <button class="merge-bg-btn" data-bg="#2B2B2B" style="background:#2B2B2B;" title="深灰"></button>
+              <button class="merge-bg-btn" data-bg="transparent" style="background-image:linear-gradient(45deg,#ccc 25%,transparent 25%,transparent 75%,#ccc 75%),linear-gradient(45deg,#ccc 25%,transparent 25%,transparent 75%,#ccc 75%);background-size:8px 8px;background-position:0 0,4px 4px;" title="透明"></button>
+            </div>
+          </div>
+
+          <div class="ew-slider-row">
+            <span class="ew-slider-label">裁切</span>
+            <div class="merge-bg-row">
+              <div class="segmented merge-radius-mode" id="gm-fit-group" role="group" aria-label="填充方式" style="transform-origin: left center;">
+                <button class="segmented-btn active" data-fit="cover">填满裁切</button>
+                <button class="segmented-btn" data-fit="contain">完整留白</button>
+              </div>
+            </div>
+          </div>
+          <div class="card-desc" style="margin-top: 8px; font-size: 11.5px;">
+            填满裁切：每格等大，图片放大裁掉超出部分（格子整齐）；完整留白：图片完整显示，在格内居中留空
+          </div>
+
+          <div class="ov-text-row" style="margin-top: 12px;">
+            <span class="ew-slider-label">输出宽度</span>
+            <div class="ov-px-row">
+              <input type="number" id="gm-out-width" class="ov-px-input" min="0" step="1" placeholder="自动">
+              <span class="ov-px-x">px（0 或留空 = 按图片自动）</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" id="card-gm-result" style="display: none;">
+          <div class="card-title">🔲 网格拼接预览</div>
+          <div class="card-desc" id="txt-gm-summary">调整参数实时更新</div>
+          <div class="merge-preview-frame">
+            <canvas id="canvas-gm-out" class="merge-preview-canvas" hidden></canvas>
+            <span class="chaos-preview-empty" id="gm-empty-out">待拼接</span>
+          </div>
+          <div class="action-row">
+            <button id="btn-gm-download" class="btn-primary-large" style="margin-top: 0;">💾 保存拼接图片</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 子面板 2: 九宫格切图 -->
+      <div id="panel-merge-grid" class="merge-sub-panel" hidden>
+        <div class="card">
+          <div class="card-title"><span class="step-badge">1</span><span class="title-text">选择图片</span></div>
+          <div class="card-desc">支持 JPG、PNG、WEBP 等常见格式，单张导入，切成九份发朋友圈 / 小红书</div>
+          <div class="upload-box" id="box-grid-upload">
+            <input type="file" id="input-grid-image" accept="image/*" style="display: none;">
+            <div class="upload-icon">#️⃣</div>
+            <div class="upload-text">点击或拖拽图片到这里</div>
+            <div class="upload-hint">切图全程在本地浏览器完成，不上传任何服务器</div>
+            <img id="img-grid-preview" class="file-preview-img" alt="原图预览">
+          </div>
+          <div id="badge-grid-info" class="file-info-badge"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span class="step-badge">2</span><span class="title-text">切图设置</span></div>
+          <div class="segmented" id="grid-mode-group" role="group" aria-label="切图模式">
+            <button class="segmented-btn active" data-grid-mode="square">正方形 3x3</button>
+            <button class="segmented-btn" data-grid-mode="full">完整 3x3</button>
+          </div>
+          <div class="card-desc" style="margin-top: 8px; font-size: 11.5px;">
+            正方形 3x3：先居中裁成正方形再九等分，每块完全一样大，发圈效果最整齐；完整 3x3：直接九等分原图，不裁不掉内容，适合比例接近方形的图
+          </div>
+          <div class="action-row" style="margin-top: 12px;">
+            <button id="btn-grid-run" class="btn-primary-large" style="margin-top: 0;">#️⃣ 立即切图</button>
+          </div>
+          <div id="txt-grid-summary" class="card-desc" style="margin-top: 10px; margin-bottom: 0;"></div>
+        </div>
+
+        <div class="card" id="card-grid-result" style="display: none;">
+          <div class="card-title" id="txt-grid-result-title">#️⃣ 切图完成</div>
+          <div id="grid-frame-list" class="split-frame-grid grid-3x3"></div>
+          <div class="action-row" style="margin-top: 12px;">
+            <button id="btn-grid-download" class="btn-primary-large" style="margin-top: 0;">💾 一键保存全部九张</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 子面板 3: 覆盖图片 -->
+      <div id="panel-merge-overlay" class="merge-sub-panel" hidden>
+        <div class="card">
+          <div class="card-title"><span class="step-badge">1</span><span class="title-text">底图与覆盖图</span></div>
+          <div class="card-desc">先传底图，再添加覆盖图；全部在浏览器本地处理</div>
+          <div class="ov-upload-row">
+            <div class="upload-box ov-upload-box" id="box-ov-base-upload">
+              <input type="file" id="input-ov-base" accept="image/*" style="display: none;">
+              <div class="upload-icon">🖼️</div>
+              <div class="upload-text">底图</div>
+              <div class="upload-hint">点击或拖拽上传</div>
+              <img id="img-ov-base-preview" class="file-preview-img" alt="底图预览">
+            </div>
+            <div class="upload-box ov-upload-box" id="box-ov-layer-upload">
+              <input type="file" id="input-ov-layer" accept="image/*" multiple style="display: none;">
+              <div class="upload-icon">🧬</div>
+              <div class="upload-text">覆盖图</div>
+              <div class="upload-hint">点击或拖拽，可多选</div>
+              <img id="img-ov-layer-preview" class="file-preview-img" alt="覆盖图预览">
+            </div>
+          </div>
+          <div id="badge-ov-base-info" class="file-info-badge"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span class="step-badge">2</span><span class="title-text">预览与编辑</span></div>
+          <div class="card-desc">画布上：拖动图层内部调整位置，拖动右下控制点调整大小，拖动顶部控制点旋转</div>
+          <div class="ov-canvas-wrap" id="ov-canvas-wrap">
+            <canvas id="canvas-ov" class="ov-canvas"></canvas>
+            <div id="ov-hint" class="ov-hint">上传底图后开始编辑</div>
+          </div>
+          <div class="action-row" style="margin-top: 12px; flex-wrap: wrap;">
+            <button id="btn-ov-add-text" class="btn-outline" style="flex: 1;">🔤 添加文字</button>
+            <button id="btn-ov-delete" class="btn-outline btn-outline-danger" style="flex: 0 0 auto;">🗑️ 删除选中</button>
+          </div>
+        </div>
+
+        <div class="card" id="card-ov-props" style="display: none;">
+          <div class="card-title"><span class="step-badge">3</span><span class="title-text">调整覆盖图层<span id="txt-ov-layer-kind" style="font-weight: 600; font-size: 12px; color: var(--text-muted);"></span></span></div>
+
+          <div id="ov-props-image" hidden>
+            <div class="ew-slider-row">
+              <span class="ew-slider-label">透明度</span>
+              <input type="range" id="ov-slider-opacity" class="ew-slider" min="0" max="1" step="0.01" value="1">
+              <span class="ew-slider-val" id="ov-val-opacity">100%</span>
+            </div>
+            <div class="ew-slider-row">
+              <span class="ew-slider-label">宽度</span>
+              <input type="range" id="ov-slider-width" class="ew-slider" min="10" max="100" step="0.1" value="30">
+              <span class="ew-slider-val" id="ov-val-width">30%</span>
+            </div>
+            <div class="ew-slider-row">
+              <span class="ew-slider-label">角度</span>
+              <input type="range" id="ov-slider-rotate" class="ew-slider" min="-180" max="180" step="1" value="0">
+              <span class="ew-slider-val" id="ov-val-rotate">0°</span>
+            </div>
+            <div class="ew-slider-row">
+              <span class="ew-slider-label">边框</span>
+              <input type="range" id="ov-slider-border" class="ew-slider" min="0" max="40" step="1" value="0">
+              <span class="ew-slider-val" id="ov-val-border">0px</span>
+              <input type="color" id="ov-border-color" class="ov-color-input" value="#FFFFFF" title="边框颜色">
+            </div>
+            <div class="ew-slider-row">
+              <span class="ew-slider-label">圆角</span>
+              <input type="range" id="ov-slider-radius" class="ew-slider" min="0" max="150" step="1" value="0">
+              <span class="ew-slider-val" id="ov-val-radius">0px</span>
+            </div>
+            <div class="ew-slider-row">
+              <span class="ew-slider-label">高度</span>
+              <input type="range" id="ov-slider-height" class="ew-slider" min="5" max="100" step="0.1" value="30" disabled>
+              <span class="ew-slider-val" id="ov-val-height">30%</span>
+              <label class="meta-toggle" style="padding: 0 0 0 6px; flex: 0 0 auto;">
+                <input type="checkbox" id="chk-ov-free-scale">
+                <span class="meta-toggle-text" style="font-size: 11.5px;">不保持比例</span>
+              </label>
+            </div>
+            <div class="ov-text-row" style="margin-top: 12px;">
+              <span class="ew-slider-label">精确尺寸</span>
+              <div class="ov-px-row">
+                <input type="number" id="ov-px-width" class="ov-px-input" min="1" step="1" placeholder="宽">
+                <span class="ov-px-x">×</span>
+                <input type="number" id="ov-px-height" class="ov-px-input" min="1" step="1" placeholder="高">
+                <button id="btn-ov-apply-px" class="btn-outline" style="flex: 0 0 auto; padding: 8px 12px;">应用</button>
+              </div>
+            </div>
+            <div class="action-row" style="margin-top: 10px;">
+              <button id="btn-ov-fit-base" class="btn-outline" style="flex: 1;">⛶ 铺满底图尺寸</button>
+            </div>
+          </div>
+
+          <div id="ov-props-text" hidden>
+            <div class="ov-text-row">
+              <span class="ew-slider-label">内容</span>
+              <input type="text" id="ov-text-input" class="ov-text-input" placeholder="输入文字内容" maxlength="60">
+            </div>
+            <div class="ew-slider-row">
+              <span class="ew-slider-label">透明度</span>
+              <input type="range" id="ov-slider-t-opacity" class="ew-slider" min="0" max="1" step="0.01" value="1">
+              <span class="ew-slider-val" id="ov-val-t-opacity">100%</span>
+            </div>
+            <div class="ew-slider-row">
+              <span class="ew-slider-label">字号</span>
+              <input type="range" id="ov-slider-t-size" class="ew-slider" min="12" max="200" step="1" value="48">
+              <span class="ew-slider-val" id="ov-val-t-size">48px</span>
+            </div>
+            <div class="ew-slider-row">
+              <span class="ew-slider-label">角度</span>
+              <input type="range" id="ov-slider-t-rotate" class="ew-slider" min="-180" max="180" step="1" value="0">
+              <span class="ew-slider-val" id="ov-val-t-rotate">0°</span>
+            </div>
+            <div class="ew-slider-row">
+              <span class="ew-slider-label">样式</span>
+              <div class="segmented merge-radius-mode" id="ov-text-weight-group" role="group" aria-label="字重" style="transform-origin: left center;">
+                <button class="segmented-btn" data-weight="normal">细</button>
+                <button class="segmented-btn active" data-weight="bold">粗</button>
+              </div>
+              <label class="meta-toggle" style="padding: 0 0 0 8px; flex: 0 0 auto;">
+                <input type="checkbox" id="chk-ov-text-italic">
+                <span class="meta-toggle-text" style="font-size: 11.5px; font-style: italic;">斜体</span>
+              </label>
+            </div>
+            <div class="ew-slider-row">
+              <span class="ew-slider-label">颜色</span>
+              <div class="merge-bg-row">
+                <input type="color" id="ov-text-color" class="ov-color-input" value="#FFFFFF">
+                <label class="meta-toggle" style="padding: 0 0 0 8px;"><input type="checkbox" id="chk-ov-text-stroke" checked><span class="meta-toggle-text" style="font-size: 11.5px;">描边（黑）</span></label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">📤 导出</div>
+          <div class="card-desc" id="txt-ov-summary">调整完成后再下载</div>
+          <div class="action-row">
+            <button id="btn-ov-download" class="btn-primary-large" style="margin-top: 0;">💾 保存成品图</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 子面板 5: 相片处理（证件照） -->
+      <div id="panel-merge-idphoto" class="merge-sub-panel" hidden>
+      <div class="card">
+        <div class="card-title"><span class="step-badge">1</span><span class="title-text">上传大头照</span></div>
+        <div class="card-desc">正面免冠照效果最好；全程本地处理，不上传服务器</div>
+        <div class="upload-box" id="box-idp-upload">
+          <input type="file" id="input-idp-image" accept="image/*" style="display: none;">
+          <div class="upload-icon">🪪</div>
+          <div class="upload-text">点击或拖拽照片到这里</div>
+          <div class="upload-hint">建议上半身正面照，纯色背景效果更佳</div>
+          <img id="img-idp-preview" class="file-preview-img" alt="原图预览">
+        </div>
+        <div id="badge-idp-info" class="file-info-badge"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><span class="step-badge">2</span><span class="title-text">规格与底色</span></div>
+        <div class="segmented" id="idp-size-group" role="group" aria-label="证件照规格">
+          <button class="segmented-btn active" data-size="1">1 寸</button>
+          <button class="segmented-btn" data-size="s1">小 1 寸</button>
+          <button class="segmented-btn" data-size="b1">大 1 寸</button>
+          <button class="segmented-btn" data-size="2">2 寸</button>
+          <button class="segmented-btn" data-size="s2">小 2 寸</button>
+          <button class="segmented-btn" data-size="b2">大 2 寸</button>
+        </div>
+        <div class="card-desc" id="txt-idp-size-info" style="margin-top: 8px;">25×35mm · 295×413px · 300DPI</div>
+
+        <div class="ew-slider-row">
+          <span class="ew-slider-label">底色</span>
+          <div class="merge-bg-row" id="idp-bg-group">
+            <button class="merge-bg-btn active" data-bg="#FFFFFF" style="background:#FFFFFF;" title="白底"></button>
+            <button class="merge-bg-btn" data-bg="#438EDB" style="background:#438EDB;" title="蓝底"></button>
+            <button class="merge-bg-btn" data-bg="#D90000" style="background:#D90000;" title="红底"></button>
+          </div>
+        </div>
+
+        <div class="ew-slider-row">
+          <span class="ew-slider-label">缩放</span>
+          <input type="range" id="idp-slider-scale" class="ew-slider" min="0.5" max="2" step="0.01" value="1">
+          <span class="ew-slider-val" id="idp-val-scale">100%</span>
+        </div>
+        <div class="ew-slider-row">
+          <span class="ew-slider-label">水平</span>
+          <input type="range" id="idp-slider-x" class="ew-slider" min="-0.5" max="0.5" step="0.005" value="0">
+          <span class="ew-slider-val" id="idp-val-x">0</span>
+        </div>
+        <div class="ew-slider-row">
+          <span class="ew-slider-label">垂直</span>
+          <input type="range" id="idp-slider-y" class="ew-slider" min="-0.5" max="0.5" step="0.005" value="0">
+          <span class="ew-slider-val" id="idp-val-y">0</span>
+        </div>
+      </div>
+
+      <div class="card" id="card-idp-result" style="display: none;">
+        <div class="card-title">🪪 证件照预览</div>
+        <div class="card-desc" id="txt-idp-summary"></div>
+        <div class="merge-preview-frame">
+          <canvas id="canvas-idp-out" class="merge-preview-canvas" hidden></canvas>
+        </div>
+        <div class="action-row">
+          <button id="btn-idp-download" class="btn-primary-large" style="margin-top: 0;">💾 保存证件照</button>
+          <button id="btn-idp-download-sheet" class="btn-primary-large" style="margin-top: 0;">🖨️ 保存 5 寸排版</button>
+        </div>
+      </div>
+      </div>
+    </section>
+
+    <!-- PAGE 11: 图片工具（MD5 / 压缩 / 转换） -->
+    <section id="page-md5" class="tab-page">
+
+      <!-- 子面板 1: MD5 哈希 -->
+      <div id="panel-md5-hash" class="merge-sub-panel">
+      <div class="card">
+        <div class="card-title"><span class="step-badge">1</span><span class="title-text">选择文件</span></div>
+        <div class="card-desc">任意文件均可；读取与修改全程本地完成，不上传服务器</div>
+        <div class="upload-box" id="box-md5-upload">
+          <input type="file" id="input-md5-file" multiple style="display: none;">
+          <div class="upload-icon">#️⃣</div>
+          <div class="upload-text">点击或拖拽文件到这里</div>
+          <div class="upload-hint">可多选 / 多张拖入，批量读取与修改</div>
+        </div>
+        <div id="badge-md5-info" class="file-info-badge"></div>
+        <div id="txt-md5-hashes" class="md5-hash-list" style="display: none;"></div>
+        <div class="action-row" id="md5-read-actions" style="display: none;">
+          <button id="btn-md5-copy" class="btn-outline" style="flex: 1;">📋 复制全部</button>
+          <button id="btn-md5-clear" class="btn-outline" style="flex: 1;">🧹 清空</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><span class="step-badge">2</span><span class="title-text">修改 MD5（追加字节）</span></div>
+        <div class="card-desc">对所有已选文件在末尾追加一段字节让哈希改变，不影响文件内容与显示；大小仅增加追加的字节数</div>
+        <div class="ov-text-row">
+          <span class="ew-slider-label">指定字节</span>
+          <input type="text" id="input-md5-bytes" class="ov-text-input" placeholder="如 png-phantom-tank" maxlength="120" value="png-phantom-tank">
+        </div>
+        <div class="ov-text-row">
+          <span class="ew-slider-label">副字节</span>
+          <input type="text" id="input-md5-bytes2" class="ov-text-input" placeholder="如 1234567890" maxlength="120" value="1234567890">
+        </div>
+        <label class="meta-toggle" style="margin-top: 10px;">
+          <input type="checkbox" id="chk-md5-random" checked>
+          <span class="meta-toggle-text">追加随机字节（每个文件生成不同的 MD5）</span>
+        </label>
+        <div class="action-row" style="margin-top: 12px;">
+          <button id="btn-md5-modify" class="btn-primary-large" style="margin-top: 0;">#️⃣ 批量修改并保存</button>
+        </div>
+        <div id="txt-md5-modify-result" class="card-desc" style="margin-top: 10px; margin-bottom: 0;"></div>
+      </div>
+      </div>
+
+      <!-- 子面板 2: 图片压缩 -->
+      <div id="panel-img-compress" class="merge-sub-panel" hidden>
+        <div class="card">
+          <div class="card-title"><span class="step-badge">1</span><span class="title-text">选择图片</span></div>
+          <div class="card-desc">可多选 / 多张拖入，JPG / PNG / WEBP 均可，压缩全程本地完成</div>
+          <div class="upload-box" id="box-cp-upload">
+            <input type="file" id="input-cp-image" accept="image/*" multiple style="display: none;">
+            <div class="upload-icon">🗜️</div>
+            <div class="upload-text">点击或拖拽图片到这里 (可多选)</div>
+            <div class="upload-hint">压缩输出统一为 JPG（体积最小）</div>
+            <img id="img-cp-preview" class="file-preview-img" alt="原图预览">
+          </div>
+          <div id="badge-cp-info" class="file-info-badge"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span class="step-badge">2</span><span class="title-text">压缩设置</span>
+            <span class="title-actions">
+              <span class="card-desc" id="txt-cp-live">已选 0 张</span>
+            </span>
+          </div>
+          <div class="ew-slider-row">
+            <span class="ew-slider-label">压缩方式</span>
+            <div class="segmented merge-radius-mode" id="cp-mode-group" role="group" aria-label="压缩方式">
+              <button class="segmented-btn active" data-cp-mode="quality">仅画质</button>
+              <button class="segmented-btn" data-cp-mode="scale">仅尺寸</button>
+              <button class="segmented-btn" data-cp-mode="both">画质+尺寸</button>
+            </div>
+          </div>
+          <div class="ew-slider-row">
+            <span class="ew-slider-label">画质</span>
+            <input type="range" id="cp-slider-quality" class="ew-slider" min="0.1" max="1" step="0.01" value="0.8">
+            <span class="ew-slider-val" id="cp-val-quality">80%</span>
+          </div>
+          <div class="ew-slider-row" id="row-cp-scale" style="opacity: .45; pointer-events: none;">
+            <span class="ew-slider-label">尺寸</span>
+            <input type="range" id="cp-slider-scale" class="ew-slider" min="0.1" max="1" step="0.01" value="1">
+            <span class="ew-slider-val" id="cp-val-scale">100%</span>
+          </div>
+          <div class="card-desc" id="txt-cp-size-hint" style="margin-bottom: 0;">等比例缩放：宽高同时缩放，不变形；输出仍为 JPG</div>
+        </div>
+
+        <div class="card" id="card-cp-result" style="display: none;">
+          <div class="card-title">🗜️ 压缩预览
+            <span class="title-actions">
+              <button id="btn-cp-clear" class="gm-reset-btn" type="button">清空全部</button>
+            </span>
+          </div>
+          <div class="card-desc" id="txt-cp-summary">拖动画质滑条实时更新（预览为缩小版画质示意，保存为原图高清压缩）</div>
+          <div id="cp-preview-gallery" class="cp-preview-gallery cp-preview-vertical"></div>
+          <div id="cp-result-list" class="cp-result-list"></div>
+          <div class="action-row" style="margin-top: 12px;">
+            <button id="btn-cp-download" class="btn-primary-large" style="margin-top: 0;">💾 一键保存全部</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 子面板 3: 格式转换 -->
+      <div id="panel-img-convert" class="merge-sub-panel" hidden>
+        <div class="card">
+          <div class="card-title"><span class="step-badge">1</span><span class="title-text">选择图片</span></div>
+          <div class="card-desc">可多选 / 多张拖入，转换全程本地完成</div>
+          <div class="upload-box" id="box-cv-upload">
+            <input type="file" id="input-cv-image" accept="image/*" multiple style="display: none;">
+            <div class="upload-icon">🔄</div>
+            <div class="upload-text">点击或拖拽图片到这里 (可多选)</div>
+            <div class="upload-hint">支持 PNG / JPG / WEBP 互转</div>
+            <img id="img-cv-preview" class="file-preview-img" alt="原图预览">
+          </div>
+          <div id="badge-cv-info" class="file-info-badge"></div>
+          <div id="cv-file-list" class="merge-file-list"></div>
+          <div class="action-row" id="cv-file-actions" style="display: none;">
+            <button id="btn-cv-clearfiles" class="btn-outline" style="flex: 1;">🧹 全部移除</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span class="step-badge">2</span><span class="title-text">转换设置</span></div>
+          <div class="ew-slider-row">
+            <span class="ew-slider-label">目标</span>
+            <div class="segmented merge-radius-mode" id="cv-format-group" role="group" aria-label="目标格式" style="transform-origin: left center;">
+              <button class="segmented-btn" data-fmt="png">PNG</button>
+              <button class="segmented-btn active" data-fmt="jpeg">JPG</button>
+              <button class="segmented-btn" data-fmt="webp">WEBP</button>
+            </div>
+          </div>
+          <div class="ew-slider-row" id="row-cv-quality">
+            <span class="ew-slider-label">画质</span>
+            <input type="range" id="cv-slider-quality" class="ew-slider" min="0.1" max="1" step="0.01" value="0.9">
+            <span class="ew-slider-val" id="cv-val-quality">90%</span>
+          </div>
+          <label class="meta-toggle" style="margin-top: 10px;">
+            <input type="checkbox" id="chk-cv-whitebg" checked>
+            <span class="meta-toggle-text">透明背景转 JPG 时填充白色（不勾选则填充黑色）</span>
+          </label>
+          <div class="action-row" style="margin-top: 12px;">
+            <button id="btn-cv-convert" class="btn-primary-large" style="margin-top: 0;">🔄 开始转换</button>
+          </div>
+        </div>
+
+        <div class="card" id="card-cv-result" style="display: none;">
+          <div class="card-title">🔄 转换结果
+            <span class="title-actions">
+              <button id="btn-cv-clear" class="gm-reset-btn" type="button">清空全部</button>
+            </span>
+          </div>
+          <div class="card-desc">转换完成的文件列表，可逐个保存或一键全部保存</div>
+          <div id="cv-result-list" class="cp-result-list"></div>
+          <div class="action-row" style="margin-top: 12px;">
+            <button id="btn-cv-download" class="btn-primary-large" style="margin-top: 0;">💾 一键保存全部</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="app-footer">
+    <div>APNG 伪装工具 · 网页版</div>
+    <div>全部处理均在浏览器本地完成，图片不会上传服务器</div>
+    <div><a href="https://github.com/Zeraphyms/PNG-phantom-tank" target="_blank" rel="noopener">GitHub 开源仓库</a></div>
+  </footer>
+</div>
+
+<!-- 大图查看 Modal（支持缩放 / 拖动） -->
+<div id="modal-preview" class="modal-mask">
+  <div class="modal-toolbar">
+    <button id="btn-zoom-out" class="modal-tool-btn" aria-label="缩小">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 12h14"/></svg>
+    </button>
+    <span id="txt-zoom-level" class="modal-zoom-label">100%</span>
+    <button id="btn-zoom-in" class="modal-tool-btn" aria-label="放大">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+    </button>
+    <button id="btn-zoom-reset" class="modal-tool-btn" aria-label="重置">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
+    </button>
+    <button id="btn-modal-close" class="modal-tool-btn" aria-label="关闭">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </div>
+  <div id="modal-stage" class="modal-stage">
+    <img id="modal-img" class="modal-content" src="" alt="大图" draggable="false">
+  </div>
+  <div class="modal-hint">
+    <span id="txt-modal-counter" class="modal-counter" hidden></span>
+    <span class="modal-hint-text">滚轮 / 双指缩放 · 拖动查看局部 · 双击复位</span>
+  </div>
+</div>
+
+<!-- 防吞测试功能说明弹窗 -->
+<div id="info-modal" class="info-modal-mask" hidden>
+  <div class="info-modal-card" role="dialog" aria-modal="true" aria-labelledby="info-modal-title">
+    <div class="info-modal-head">
+      <span id="info-modal-title" class="info-modal-title">防吞（测试功能）实现原理</span>
+      <button id="btn-info-modal-close" class="icon-btn-sm" aria-label="关闭" title="关闭">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="info-modal-body">
+      <p>聊天软件（如 QQ / 微信）在发送图片时，会对图片做<b>去重判断</b>：如果它认为两张图的“内容指纹”相同，就只保留其中一张，表现为“吞图”。</p>
+      <p>本功能不改动你还原后看到的<b>真实图片</b>，只在<b>伪装封面</b>上做两层极轻微的随机扰动：</p>
+      <ul>
+        <li><b>逐像素随机扰动：</b>封面上每个像素的 R / G / B 通道各自随机 ±2 级（数值到达 0 或 255 时钳制，不会翻转成异色）。因为每个像素独立随机，每次生成的封面组合都不同。</li>
+        <li><b>整体随机色偏：</b>整张封面每个通道再随机偏移 −1 ~ +1，让整体色调有极轻微变化，比纯噪声更抗二次压缩。</li>
+      </ul>
+      <p>这样一来，每次生成的封面在<b>缩略图 / 哈希指纹</b>层面都不相同，从而降低被判重、被“吞”的概率；而肉眼几乎看不出差别。</p>
+      <p class="info-modal-note">说明：平台判重算法并不公开，且会随版本变化，因此本功能属于<b>测试性质</b>，不能保证对所有平台 100% 有效。若发现无效，欢迎前往 GitHub 仓库反馈。</p>
+    </div>
+  </div>
+</div>
+<!-- 依赖脚本 -->
+<script src="js/ApngCodec.js"></script>
+<script src="js/GifReader.js"></script>
+<script src="js/ImageChaos.js"></script>
+<script src="js/WebGIFEncoder.js"></script>
+<script src="js/MiniZlib.js"></script>
+<script src="js/default_cover.js"></script>
+<script src="js/ew_watermarks.js"></script>
+<script src="js/app.js?v=1.5.8.3"></script>
+
+</body>
+</html>
