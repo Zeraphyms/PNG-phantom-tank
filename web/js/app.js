@@ -126,22 +126,6 @@ document.addEventListener("DOMContentLoaded", () => {
     // 顶栏「回到主页」（夜间模式左边，功能页显示）：回默认页
     document.getElementById("btn-header-home").addEventListener("click", () => switchPage("page-disguise"));
 
-    // 1.0.1 直达路径：启动时按 URL 路径进入对应功能（/split /chaos /clean /weathering /processing）
-    // 站点无 404.html，Cloudflare Pages 按 SPA 兜底把所有未知路径 200 返回 index.html，
-    // 无需 _redirects（写了反而会因 /index.html 规范化 308 跳回 /）；本地 file:// 不受影响
-    (function routeByPath() {
-        if (!location.protocol.startsWith("http")) return;
-        const p = location.pathname.replace(/\/+$/, "") || "/";
-        const hit = Object.entries(FEATURE_PAGES).find(([, f]) => f.path === p);
-        if (hit) {
-            switchPage(hit[0], true);
-            // 直达进入也压一条历史，后退键能回到主页
-            history.replaceState({ page: hit[0] }, "", p);
-        } else {
-            history.replaceState({ page: "page-disguise" }, "", location.pathname);
-        }
-    })();
-
     // 1.1 更多功能菜单
     const btnMenuMore = document.getElementById("btn-menu-more");
     const menuMore = document.getElementById("menu-more");
@@ -697,7 +681,6 @@ document.addEventListener("DOMContentLoaded", () => {
         return ApngCodec.concatBuffers(parts);
     }
 
-
     function drawBadgeOnCanvas(cctx, w, h, badgeNum) {
         const density = Math.max(1, Math.min(w, h) / 400);
         const size = Math.round(28 * density);
@@ -919,7 +902,6 @@ document.addEventListener("DOMContentLoaded", () => {
                 coverImg.removeAttribute("src");
                 coverSection.style.display = "none";
             }
-
 
             const summary = document.getElementById("txt-restore-summary");
             if (lastRestoredResults.length === 1) {
@@ -4694,7 +4676,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const inputMd5Img = document.getElementById("input-md5-image");
     let md5Items = [];
 
-
     // 通用导入：全部进同一份 md5Items（分框只是入口不同）
     async function importMd5Files(files) {
         let added = 0;
@@ -5421,7 +5402,6 @@ document.addEventListener("DOMContentLoaded", () => {
         refreshCvBadge();
     });
 
-
     function resetMd5Box() {
         [boxMd5, boxMd5Img].forEach(box => {
             box.querySelector(".upload-icon").style.display = "";
@@ -5611,7 +5591,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function showNextImage() { showModalAt(modalIndex + 1); }
     function showPrevImage() { showModalAt(modalIndex - 1); }
-
 
     function closeModal() {
         modal.classList.remove("open");
@@ -5889,4 +5868,22 @@ document.addEventListener("DOMContentLoaded", () => {
         ctx.drawImage(drawable, 0, 0);
         return new Promise(resolve => canvas.toBlob(resolve, "image/png"));
     }
+    // 1.0.1 直达路径：启动时按 URL 路径进入对应功能（/split /chaos /clean /weathering /processing /md5）
+    // 站点无 404.html，Cloudflare Pages 按 SPA 兜底把所有未知路径 200 返回 index.html，
+    // 无需 _redirects（写了反而会因 /index.html 规范化 308 跳回 /）；本地 file:// 不受影响
+    // 【必须放在文件末尾】switchPage 对图片处理/图片工具页会调用 applySubTabsForPage，
+    // 它引用的 mergeSubPanels / SUB_TABS_BY_PAGE 是本闭包后段的顶层 const——放在前面会因 TDZ
+    // 未初始化抛错，导致刷新进入这两页时顶栏状态错乱（主 Tab 误显示、子标签全显）。
+    (function routeByPath() {
+        if (!location.protocol.startsWith("http")) return;
+        const p = location.pathname.replace(/\/+$/, "") || "/";
+        const hit = Object.entries(FEATURE_PAGES).find(([, f]) => f.path === p);
+        if (hit) {
+            switchPage(hit[0], true);
+            // 直达进入也压一条历史，后退键能回到主页
+            history.replaceState({ page: hit[0] }, "", p);
+        } else {
+            history.replaceState({ page: "page-disguise" }, "", location.pathname);
+        }
+    })();
 });
