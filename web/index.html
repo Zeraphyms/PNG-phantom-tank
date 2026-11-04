@@ -13,7 +13,7 @@
       document.documentElement.classList.toggle("dark", !!dark);
     })();
   </script>
-  <link rel="stylesheet" href="css/style.css?v=1.5.8.3">
+  <link rel="stylesheet" href="css/style.css?v=1.5.9.0">
 </head>
 <body>
 
@@ -26,7 +26,7 @@
       </button>
       <div class="app-head-center">
         <div class="app-title">APNG 伪装工具</div>
-        <div class="app-badge">Web v1.5.8</div>
+        <div class="app-badge">Web v1.5.9</div>
       </div>
       <div class="app-header-actions">
         <button id="btn-header-home" class="icon-btn" aria-label="回到主页" title="回到主页" hidden>
@@ -455,6 +455,66 @@
         <div class="card-desc">解析图片里隐藏的 EXIF 拍摄信息与 GPS 位置（浏览器本地解析，不上传）。选中图片后自动刷新。</div>
         <div id="meta-view-result"></div>
       </div>
+
+      <div class="card">
+        <div class="card-title"><span class="step-badge">4</span><span class="title-text">信息写入（EXIF 伪造）</span></div>
+        <div class="card-desc">对第 1 步选中的【第一张图片】写入自定义元数据（写入方式与真实相机一致，「信息查看」无法区分）。用途：给自己的图填假位置 / 假时间，避免真实行踪泄露。留空的字段不写入。另有部分专业参数（快门 APEX / 光圈 APEX / 测光 / 闪光灯 / EXIF 版本等）按所选模板自动写入，无需手动填。</div>
+        <div class="ew-slider-row">
+          <span class="ew-slider-label">模板</span>
+          <div class="segmented merge-radius-mode" id="exif-template-group" role="group" aria-label="写入模板">
+            <button class="segmented-btn active" data-tpl="portrait">竖拍模板</button>
+            <button class="segmented-btn" data-tpl="landscape">横拍模板</button>
+          </div>
+        </div>
+        <div class="ov-text-row">
+          <span class="ew-slider-label">相机品牌</span>
+          <input type="text" id="exif-make" class="ov-text-input" maxlength="40">
+        </div>
+        <div class="ov-text-row">
+          <span class="ew-slider-label">相机型号</span>
+          <input type="text" id="exif-model" class="ov-text-input" maxlength="60">
+        </div>
+        <div class="ov-text-row">
+          <span class="ew-slider-label">镜头型号</span>
+          <input type="text" id="exif-lens" class="ov-text-input" maxlength="80">
+        </div>
+        <div class="ew-slider-row">
+          <span class="ew-slider-label">曝光时间</span>
+          <input type="text" id="exif-exposure" class="ov-text-input" inputmode="decimal" placeholder="如 1/100 或 0.01" style="flex: 1; min-width: 0;" maxlength="20">
+        </div>
+        <div class="ew-slider-row">
+          <span class="ew-slider-label">光圈 F</span>
+          <input type="text" id="exif-fnumber" class="ov-text-input" inputmode="decimal" placeholder="如 1.6" style="flex: 1; min-width: 0;" maxlength="10">
+        </div>
+        <div class="ew-slider-row">
+          <span class="ew-slider-label">ISO</span>
+          <input type="text" id="exif-iso" class="ov-text-input" inputmode="numeric" placeholder="如 196" style="flex: 1; min-width: 0;" maxlength="6">
+        </div>
+        <div class="ew-slider-row">
+          <span class="ew-slider-label">焦距 mm</span>
+          <input type="text" id="exif-focal" class="ov-text-input" inputmode="decimal" placeholder="如 6.06" style="flex: 1; min-width: 0;" maxlength="10">
+        </div>
+        <div class="ov-text-row">
+          <span class="ew-slider-label">拍摄时间</span>
+          <input type="text" id="exif-datetime" class="ov-text-input" placeholder="格式 2026:11:04 12:00:00（留空 = 自动填当前时间）" maxlength="19">
+        </div>
+        <div class="ov-text-row">
+          <span class="ew-slider-label">修改时间</span>
+          <input type="text" id="exif-modify" class="ov-text-input" placeholder="留空 = 同拍摄时间" maxlength="19">
+        </div>
+        <div class="ew-slider-row">
+          <span class="ew-slider-label">纬度</span>
+          <input type="text" id="exif-lat" class="ov-text-input" inputmode="decimal" placeholder="如 31.2304（留空不写 GPS）" style="flex: 1; min-width: 0;">
+        </div>
+        <div class="ew-slider-row">
+          <span class="ew-slider-label">经度</span>
+          <input type="text" id="exif-lon" class="ov-text-input" inputmode="decimal" placeholder="如 121.4737（负数=南/西半球）" style="flex: 1; min-width: 0;">
+        </div>
+        <div class="action-row" style="margin-top: 12px;">
+          <button id="btn-exif-write" class="btn-primary-large" style="margin-top: 0;">✍️ 写入并保存</button>
+        </div>
+        <div id="txt-exif-result" class="card-desc" style="margin-top: 10px; margin-bottom: 0;"></div>
+      </div>
     </section>
 
     <!-- PAGE 8: 电子包浆 -->
@@ -744,12 +804,24 @@
 
         <div class="card">
           <div class="card-title"><span class="step-badge">2</span><span class="title-text">切图设置</span></div>
-          <div class="segmented" id="grid-mode-group" role="group" aria-label="切图模式">
-            <button class="segmented-btn active" data-grid-mode="square">正方形 3x3</button>
-            <button class="segmented-btn" data-grid-mode="full">完整 3x3</button>
+          <div class="ew-slider-row">
+            <span class="ew-slider-label">布局</span>
+            <div class="segmented" id="grid-layout-group" role="group" aria-label="切图布局">
+              <button class="segmented-btn active" data-rows="3" data-cols="3">3×3</button>
+              <button class="segmented-btn" data-rows="2" data-cols="2">2×2</button>
+              <button class="segmented-btn" data-rows="1" data-cols="3">1×3</button>
+              <button class="segmented-btn" data-rows="2" data-cols="3">2×3</button>
+            </div>
+          </div>
+          <div class="ew-slider-row" id="row-grid-square">
+            <span class="ew-slider-label">裁切</span>
+            <div class="segmented" id="grid-mode-group" role="group" aria-label="裁切方式">
+              <button class="segmented-btn active" data-grid-mode="square">先裁正方形</button>
+              <button class="segmented-btn" data-grid-mode="full">不裁剪</button>
+            </div>
           </div>
           <div class="card-desc" style="margin-top: 8px; font-size: 11.5px;">
-            正方形 3x3：先居中裁成正方形再九等分，每块完全一样大，发圈效果最整齐；完整 3x3：直接九等分原图，不裁不掉内容，适合比例接近方形的图
+            先裁正方形：居中裁成方形再等分，每块完全一样大，发圈效果最整齐（1×3 布局不适用）；不裁剪：直接等分原图，不裁掉内容。1×3 = 横向三连条，2×3 = 两行三列六宫格
           </div>
           <div class="action-row" style="margin-top: 12px;">
             <button id="btn-grid-run" class="btn-primary-large" style="margin-top: 0;">#️⃣ 立即切图</button>
@@ -759,9 +831,9 @@
 
         <div class="card" id="card-grid-result" style="display: none;">
           <div class="card-title" id="txt-grid-result-title">#️⃣ 切图完成</div>
-          <div id="grid-frame-list" class="split-frame-grid grid-3x3"></div>
+          <div id="grid-frame-list" class="split-frame-grid"></div>
           <div class="action-row" style="margin-top: 12px;">
-            <button id="btn-grid-download" class="btn-primary-large" style="margin-top: 0;">💾 一键保存全部九张</button>
+            <button id="btn-grid-download" class="btn-primary-large" style="margin-top: 0;">💾 一键保存全部</button>
           </div>
         </div>
       </div>
@@ -981,11 +1053,19 @@
       <div class="card">
         <div class="card-title"><span class="step-badge">1</span><span class="title-text">选择文件</span></div>
         <div class="card-desc">任意文件均可；读取与修改全程本地完成，不上传服务器</div>
-        <div class="upload-box" id="box-md5-upload">
-          <input type="file" id="input-md5-file" multiple style="display: none;">
-          <div class="upload-icon">#️⃣</div>
-          <div class="upload-text">点击或拖拽文件到这里</div>
-          <div class="upload-hint">可多选 / 多张拖入，批量读取与修改</div>
+        <div class="md5-upload-row">
+          <div class="upload-box" id="box-md5-upload">
+            <input type="file" id="input-md5-file" multiple style="display: none;">
+            <div class="upload-icon">#️⃣</div>
+            <div class="upload-text">选择文件</div>
+            <div class="upload-hint">任意文件均可（APK / 安装包等）</div>
+          </div>
+          <div class="upload-box" id="box-md5-img">
+            <input type="file" id="input-md5-image" accept="image/*" multiple style="display: none;">
+            <div class="upload-icon">🖼️</div>
+            <div class="upload-text">选择图片</div>
+            <div class="upload-hint">手机可直调相册（JPG/PNG 等）</div>
+          </div>
         </div>
         <div id="badge-md5-info" class="file-info-badge"></div>
         <div id="txt-md5-hashes" class="md5-hash-list" style="display: none;"></div>
@@ -1030,6 +1110,10 @@
             <img id="img-cp-preview" class="file-preview-img" alt="原图预览">
           </div>
           <div id="badge-cp-info" class="file-info-badge"></div>
+          <div id="cp-file-list" class="merge-file-list"></div>
+          <div class="action-row" id="cp-file-actions" style="display: none;">
+            <button id="btn-cp-clearfiles" class="btn-outline" style="flex: 1;">🧹 全部移除</button>
+          </div>
         </div>
 
         <div class="card">
@@ -1044,9 +1128,10 @@
               <button class="segmented-btn active" data-cp-mode="quality">仅画质</button>
               <button class="segmented-btn" data-cp-mode="scale">仅尺寸</button>
               <button class="segmented-btn" data-cp-mode="both">画质+尺寸</button>
+              <button class="segmented-btn" data-cp-mode="target">目标体积</button>
             </div>
           </div>
-          <div class="ew-slider-row">
+          <div class="ew-slider-row" id="row-cp-quality">
             <span class="ew-slider-label">画质</span>
             <input type="range" id="cp-slider-quality" class="ew-slider" min="0.1" max="1" step="0.01" value="0.8">
             <span class="ew-slider-val" id="cp-val-quality">80%</span>
@@ -1055,6 +1140,11 @@
             <span class="ew-slider-label">尺寸</span>
             <input type="range" id="cp-slider-scale" class="ew-slider" min="0.1" max="1" step="0.01" value="1">
             <span class="ew-slider-val" id="cp-val-scale">100%</span>
+          </div>
+          <div class="ew-slider-row" id="row-cp-target" style="opacity: .45; pointer-events: none;">
+            <span class="ew-slider-label">目标体积</span>
+            <input type="text" id="input-cp-target" class="ov-text-input" inputmode="decimal" placeholder="如 500" style="flex: 1; min-width: 0; max-width: 120px;" maxlength="6" value="500">
+            <span class="ew-slider-label" style="flex: 0 0 auto;">KB / 张</span>
           </div>
           <div class="card-desc" id="txt-cp-size-hint" style="margin-bottom: 0;">等比例缩放：宽高同时缩放，不变形；输出仍为 JPG</div>
         </div>
@@ -1065,7 +1155,7 @@
               <button id="btn-cp-clear" class="gm-reset-btn" type="button">清空全部</button>
             </span>
           </div>
-          <div class="card-desc" id="txt-cp-summary">拖动画质滑条实时更新（预览为缩小版画质示意，保存为原图高清压缩）</div>
+          <div class="card-desc" id="txt-cp-summary">选择图片后自动计算（目标体积模式显示精确最终体积）</div>
           <div id="cp-preview-gallery" class="cp-preview-gallery cp-preview-vertical"></div>
           <div id="cp-result-list" class="cp-result-list"></div>
           <div class="action-row" style="margin-top: 12px;">
@@ -1196,7 +1286,7 @@
 <script src="js/MiniZlib.js"></script>
 <script src="js/default_cover.js"></script>
 <script src="js/ew_watermarks.js"></script>
-<script src="js/app.js?v=1.5.8.3"></script>
+<script src="js/app.js?v=1.5.9.0"></script>
 
 </body>
 </html>

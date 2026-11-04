@@ -1,3 +1,33 @@
+    // ===== 公共：文件列表渲染组件 =====
+    // 供 MD5 工具 / 格式转换 / 图片压缩等批量功能复用。
+    // items: [{ name, size }]；onRemove(i) 为点击 ✕ 的回调；opts.containerId 列表容器、
+    // opts.actionsId "全部移除"按钮所在行（可空）、opts.onClearAll 全清回调（可空）。
+    // 样式使用 merge-file-item 行（序号/文件名/大小/✕），空列表时隐藏容器与操作行。
+    function renderFileList(items, onRemove, opts) {
+        const listEl = document.getElementById(opts.containerId);
+        const actionsEl = opts.actionsId ? document.getElementById(opts.actionsId) : null;
+        listEl.innerHTML = "";
+        if (actionsEl) actionsEl.style.display = items.length ? "flex" : "none";
+        items.forEach((item, i) => {
+            const row = document.createElement("div");
+            row.className = "merge-file-item";
+            const order = document.createElement("span");
+            order.className = "merge-file-order";
+            order.textContent = String(i + 1);
+            const name = document.createElement("span");
+            name.className = "merge-file-name";
+            name.textContent = `${item.name} (${(item.size / 1024).toFixed(0)} KB)`;
+            const del = document.createElement("button");
+            del.className = "merge-file-del";
+            del.textContent = "✕";
+            del.title = "移除";
+            del.addEventListener("click", () => onRemove(i));
+            row.appendChild(order);
+            row.appendChild(name);
+            row.appendChild(del);
+            listEl.appendChild(row);
+        });
+    }
 // Web 端主应用逻辑
 document.addEventListener("DOMContentLoaded", () => {
     // 状态
@@ -1648,7 +1678,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // 8.1 清除信息（元数据 / NovelAI 提示词抹除），支持多张
     const boxClean = document.getElementById("box-clean-upload");
     const inputClean = document.getElementById("input-clean-image");
-    let cleanSources = [];      // [{ canvas, filename }]
+    let cleanSources = [];      // [{ canvas, filename, bytes(原文件字节，供 EXIF 写入) }]
     let cleanResults = [];      // [{ blob, url, filename }]
 
     boxClean.addEventListener("click", () => inputClean.click());
@@ -1684,7 +1714,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     canvas.width = w;
                     canvas.height = h;
                     canvas.getContext("2d", { willReadFrequently: true }).drawImage(img, 0, 0, w, h);
-                    list.push({ canvas, filename: file.name });
+                    list.push({ canvas, filename: file.name, bytes: new Uint8Array(await file.arrayBuffer()) });
                 } finally {
                     URL.revokeObjectURL(url);
                 }
@@ -1872,6 +1902,20 @@ document.addEventListener("DOMContentLoaded", () => {
             }
             if (type === 3) return num === 1 ? metaReadU16(v, off, le) : (num <= 4 ? Array.from({ length: num }, (_, i) => metaReadU16(v, off + i * 2, le)).join(", ") : null);
             if (type === 4) return num === 1 ? metaReadU32(v, off, le) : (num <= 4 ? Array.from({ length: num }, (_, i) => metaReadU32(v, off + i * 4, le)).join(", ") : null);
+            if (type === 7 || type === 1) {   // UNDEFINED/BYTE：显示十六进制（版本号等）
+                const hex2 = [];
+                for (let i = 0; i < num && off + i < v.length; i++) hex2.push(v[off + i].toString(16).padStart(2, "0"));
+                return hex2.join(" ");
+            }
+            if (type === 10 && num >= 1 && num <= 4) {  // SRATIONAL（快门/光圈 APEX、曝光补偿等）
+                const vals = [];
+                for (let i = 0; i < num; i++) {
+                    const n = metaReadU32(v, off + i * 8, le);
+                    const d = metaReadU32(v, off + i * 8 + 4, le);
+                    vals.push(d === 0 ? 0 : n / d);
+                }
+                return num === 1 ? vals[0] : vals.join(", ");
+            }
             if (type === 5 && num >= 1 && num <= 4) {   // RATIONAL（GPS 度分秒、海拔等）
                 const vals = [];
                 for (let i = 0; i < num; i++) {
@@ -1921,7 +1965,26 @@ document.addEventListener("DOMContentLoaded", () => {
         } else if (raw[0] === 0x89 && raw[1] === 0x50) {
             const chunks = ApngCodec.parseChunks(raw);
             const exifChunk = chunks.find(c => c.type === "eXIf");
-            if (exifChunk) tiff = exifChunk.payload;
+            if (exifChunk) {
+                tiff = exifChunk.payload;
+            } else {
+                // 兼容 ImageMagick 传统写法：tEXt "Raw profile type exif"（hex 文本）
+                const rawProfile = chunks.find(c => c.type === "tEXt" &&
+                    c.payload.length > 22 && new TextDecoder().decode(c.payload.slice(0, 22)) === "Raw profile type exif\0");
+                if (rawProfile) {
+                    try {
+                        const txt = new TextDecoder("latin1").decode(rawProfile.payload.slice(21));
+                        const lines = txt.split("\n").map(l => l.trim()).filter(Boolean);
+                        // 格式：exif / 长度 / hex行...
+                        if (lines[0] === "exif" && lines.length >= 3) {
+                            const hexStr = lines.slice(2).join("");
+                            const bytes = new Uint8Array(hexStr.length / 2);
+                            for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(hexStr.substr(i * 2, 2), 16);
+                            tiff = bytes;
+                        }
+                    } catch (e) { /* 还原失败按无处理 */ }
+                }
+            }
         }
         if (!tiff || tiff.length < 8) return { exif: [], gps: [], gpsCoord: null, textChunks: extractMetaChunks(raw) };
 
@@ -2031,6 +2094,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
         // 文本块（tEXt/iTXt/zTXt）完整解析：AI 绘图的提示词与生成参数都在这里
         for (const c of meta.textChunks) {
+            // "Raw profile type exif" 是 EXIF 的 tEXt 载体（已在上方解析为拍摄参数表），跳过
+            if (c.type === "tEXt" && c.payload.length > 21 &&
+                new TextDecoder("latin1").decode(c.payload.slice(0, 22)) === "Raw profile type exif\0") continue;
             const parsed = await parseTextChunk(c);
             if (!parsed) continue;
             // 关键内容（提示词/生成参数）用大卡片展示：可展开收起，超长提供 txt 下载
@@ -2105,6 +2171,369 @@ document.addEventListener("DOMContentLoaded", () => {
     function escapeHtml(s) {
         return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
     }
+
+    // 8.1.2 EXIF 写入（隐私反向运用）：把自定义的相机型号 / 拍摄时间 / GPS 写进图片元数据。
+    // 原理：PNG 在 IEND 前插入 eXIf 块；JPEG 在 SOI 后插入 APP1("Exif\0\0"+TIFF)。
+    // 必须直接操作原始文件字节——canvas 重编码会丢掉一切元数据。
+
+    // ---- TIFF/EXIF 序列化工具 ----
+    // 类型码：1=BYTE 2=ASCII 3=SHORT 4=LONG 5=RATIONAL 7=UNDEFINED 9=SLONG 10=SRATIONAL
+    function exifTypeSize(t) { return [0, 1, 1, 2, 4, 8, 1, 0, 0, 4, 8][t] || 1; }
+
+    function exifEntry(tag, type, values) {
+        // 返回 {tag, type, count, dataBytes(Uint8Array，小端), valueOffsetPlaceholder}
+        const size = exifTypeSize(type) * values.length;
+        let data;
+        if (type === 2) {           // ASCII
+            data = new TextEncoder().encode(values.join("") + "\0");
+        } else if (type === 3) {    // SHORT
+            data = new Uint8Array(values.length * 2);
+            const dv = new DataView(data.buffer);
+            values.forEach((v, i) => dv.setUint16(i * 2, v, true));
+        } else if (type === 4 || type === 9) { // LONG/SLONG
+            data = new Uint8Array(values.length * 4);
+            const dv = new DataView(data.buffer);
+            values.forEach((v, i) => dv.setUint32(i * 2 * 2, v, true));
+        } else if (type === 5 || type === 10) { // RATIONAL（值为 [num,den] 对数组）
+            data = new Uint8Array(values.flat().length * 4);
+            const dv = new DataView(data.buffer);
+            values.flat().forEach((v, i) => dv.setUint32(i * 4, v, true));
+        } else {                    // UNDEFINED 等按字节
+            data = new Uint8Array(values);
+        }
+        const count = (type === 2) ? data.length : (type === 5 || type === 10 ? values.length : values.length);
+        return { tag, type, count, data, inline: data.length <= 4 };
+    }
+
+    // 构建一个 IFD：entries 数组 → { ifdBytes, externalData(Uint8Array 数组拼接) }
+    function buildIfd(entries, nextIfdOffset) {
+        // 布局：count(2) + entries(12*n) + nextIFD(4) + 外部数据区
+        // EXIF 规范要求条目按 tag 升序存储——排序后显示顺序也与真实相机一致
+        entries = entries.slice().sort((a, b) => a.tag - b.tag);
+        const n = entries.length;
+        const ifdSize = 2 + n * 12 + 4;
+        const external = [];
+        let extOffset = ifdSize;
+        const header = new Uint8Array(ifdSize);
+        const dv = new DataView(header.buffer);
+        dv.setUint16(0, n, true);
+        entries.forEach((e, i) => {
+            const off = 2 + i * 12;
+            dv.setUint16(off, e.tag, true);
+            dv.setUint16(off + 2, e.type, true);
+            dv.setUint32(off + 4, e.count, true);
+            if (e.inline) {
+                header.set(e.data, off + 8);   // ≤4 字节内联
+                // 右侧补 0
+                for (let k = e.data.length; k < 4; k++) dv.setUint8(off + 8 + k, 0);
+            } else {
+                dv.setUint32(off + 8, extOffset, true);
+                external.push(e.data);
+                extOffset += e.data.length;
+            }
+        });
+        dv.setUint32(2 + n * 12, nextIfdOffset || 0, true);
+        return { header, external };
+    }
+
+    // 构造完整 TIFF EXIF 载荷（小端 "II"）：IFD0(相机+软件+DateTime+ExifIFD指针+GPS指针) + ExifIFD + GPS IFD
+    // fields: { make, model, software, datetime, lat, lon, latRef, lonRef }
+    function buildExifTiff(fields) {
+        // 完整字段：品牌/型号/镜头/软件/拍摄/修改时间/曝光(F,ISO,焦距)/GPS/像素尺寸
+        // 专业参数（APEX 等）由换算自动生成，不暴露给用户
+        const hasExif = !!(fields.datetime || fields.exposureSec !== undefined || fields.fnumber !== undefined || fields.iso !== undefined || fields.focal !== undefined);
+        const hasGps = fields.lat !== undefined && fields.lon !== undefined;
+        const latRef = fields.latRef || (fields.lat < 0 ? 'S' : 'N');
+        const lonRef = fields.lonRef || (fields.lon < 0 ? 'W' : 'E');
+
+        // ---- IFD0 ----
+        const ifd0 = [];
+        if (fields.make) ifd0.push(exifEntry(0x010F, 2, [fields.make]));
+        if (fields.model) ifd0.push(exifEntry(0x0110, 2, [fields.model]));
+        if (fields.software) ifd0.push(exifEntry(0x0131, 2, [fields.software]));
+        if (fields.modify) ifd0.push(exifEntry(0x0132, 2, [fields.modify]));
+        ifd0.push(exifEntry(0x0100, 4, [fields.pixelW || 0]));   // 图像宽度
+        ifd0.push(exifEntry(0x0101, 4, [fields.pixelH || 0]));   // 图像高度
+        ifd0.push(exifEntry(0x0112, 3, [1]));                    // 拍摄方向 = 1（已转正）
+        ifd0.push(exifEntry(0x0128, 3, [2]));                    // 分辨率单位 = 英寸（模板有）
+        ifd0.push(exifEntry(0x0213, 3, [1]));                    // YCbCr 定位 = 居中
+        // 子 IFD 指针在中段统一加入（收集完 Exif/GPS 条目后）
+
+        // ---- Exif 子 IFD 条目 ----
+        const exifEntries = [];
+        if (hasExif && fields.datetime) {
+            exifEntries.push(exifEntry(0x9003, 2, [fields.datetime]));      // DateTimeOriginal
+            exifEntries.push(exifEntry(0x9004, 2, [fields.datetime]));      // DateTimeDigitized
+            exifEntries.push(exifEntry(0x9011, 2, ["+08:00"]));             // OffsetTimeOriginal
+        }
+        if (fields.exposureSec !== undefined) {
+            const apexShutter = Math.round(-Math.log2(fields.exposureSec) * 1000);
+            exifEntries.push(exifEntry(0x9201, 10, [[apexShutter, 1000]]));
+            const den = Math.max(1, Math.round(1 / fields.exposureSec));
+            if (fields.exposureSec < 1) exifEntries.push(exifEntry(0x829A, 5, [[1, den]]));
+            else exifEntries.push(exifEntry(0x829A, 5, [[Math.round(fields.exposureSec * 1000), 1000]]));
+        }
+        if (fields.fnumber !== undefined) {
+            const apexAperture = Math.round(2 * Math.log2(fields.fnumber) * 100);
+            exifEntries.push(exifEntry(0x9202, 10, [[apexAperture, 100]]));
+            exifEntries.push(exifEntry(0x829D, 5, [[Math.round(fields.fnumber * 10), 10]]));
+        }
+        if (fields.iso !== undefined) exifEntries.push(exifEntry(0x8827, 3, [fields.iso]));
+        if (fields.focal !== undefined) exifEntries.push(exifEntry(0x920A, 5, [[Math.round(fields.focal * 1000), 1000]]));
+        if (fields.lens) exifEntries.push(exifEntry(0xA434, 2, [fields.lens]));
+        exifEntries.push(exifEntry(0x9204, 10, [[0, 6]]));    // 曝光补偿 0
+        exifEntries.push(exifEntry(0x9207, 3, [2]));          // 测光 = 中心加权
+        exifEntries.push(exifEntry(0x9209, 3, [16]));         // 闪光灯 = 未闪/强制
+        exifEntries.push(exifEntry(0x9208, 3, [0]));          // 白平衡 = 自动
+
+        exifEntries.push(exifEntry(0xA001, 3, [1]));          // 色彩空间 sRGB
+        exifEntries.push(exifEntry(0xA002, 4, [fields.pixelW || 0]));
+        exifEntries.push(exifEntry(0xA003, 4, [fields.pixelH || 0]));
+        exifEntries.push(exifEntry(0x8822, 3, [0]));          // 曝光模式 = 自动曝光
+        exifEntries.push(exifEntry(0x9203, 10, [[499, 100]])); // 亮度（APEX，合理默认 4.99）
+        exifEntries.push(exifEntry(0x9205, 10, [[Math.round(2 * Math.log2(fields.fnumber || 2) * 100), 100]])); // 最大光圈 = 光圈
+        if (hasExif) {
+            // 子秒（毫秒占位 000，模板里有 618——沿用 000 占位）
+            exifEntries.push(exifEntry(0x9290, 2, [ "000"]));      // SubSecTime
+            exifEntries.push(exifEntry(0x9291, 2, [ "000"]));      // SubSecTimeOriginal
+            exifEntries.push(exifEntry(0x9292, 2, [ "000"]));      // SubSecTimeDigitized
+        }
+        exifEntries.push(exifEntry(0xA217, 3, [0]));          // 感光方式 = 未定义
+        exifEntries.push(exifEntry(0xA402, 3, [0]));          // 曝光模式 = 自动
+        exifEntries.push(exifEntry(0xA403, 3, [0]));          // 白平衡 = 自动
+        exifEntries.push(exifEntry(0xA404, 10, [[0, 1]]));    // 数字变焦 = 无（0）
+        if (fields.focal !== undefined) {
+            // 35mm 等效焦距：OnePlus 主摄 6.06mm ≈ 23mm 等效；超广角 2.3mm ≈ 15mm
+            const eq35 = Math.abs(fields.focal - 6.06) < 0.1 ? 23 : (Math.abs(fields.focal - 2.3) < 0.1 ? 15 : Math.round(fields.focal * 3.8));
+            exifEntries.push(exifEntry(0xA405, 3, [eq35]));
+        }
+        exifEntries.push(exifEntry(0xA406, 3, [0]));          // 场景捕捉类型 = 标准
+
+        // ---- GPS 子 IFD 条目 ----
+        const toDms = (dec) => {
+            const abs = Math.abs(dec);
+            const d = Math.floor(abs);
+            const mFloat = (abs - d) * 60;
+            const m = Math.floor(mFloat);
+            const s = Math.round((mFloat - m) * 60 * 100);
+            return [[d, 1], [m, 1], [s, 100]];
+        };
+        const gpsEntries = [];
+        if (hasGps) {
+            gpsEntries.push(exifEntry(0x0000, 7, [0x02, 0x03, 0x00, 0x00]));  // GPSVersion 2.3
+            gpsEntries.push(exifEntry(0x0001, 2, [latRef]));
+            gpsEntries.push(exifEntry(0x0002, 5, toDms(fields.lat)));
+            gpsEntries.push(exifEntry(0x0003, 2, [lonRef]));
+            gpsEntries.push(exifEntry(0x0004, 5, toDms(fields.lon)));
+        }
+
+        // ---- IFD0 加入子 IFD 指针（必须在计算 IFD0 头大小之前）----
+        if (exifEntries.length) ifd0.push(exifEntry(0x8769, 4, [0]));
+        if (gpsEntries.length) ifd0.push(exifEntry(0x8825, 4, [0]));
+        // ---- 偏移计算与拼接 ----
+        const ifd0Obj = buildIfd(ifd0, 0);
+        const ifd0HeaderLen = ifd0Obj.header.length;
+        const exifPtr = 8 + ifd0HeaderLen;
+        const exifObj = buildIfd(exifEntries, 0);
+        const exifHeaderLen = exifObj.header.length;
+        const gpsPtr = exifPtr + exifHeaderLen;
+        const gpsObj = buildIfd(gpsEntries, 0);
+        const baseIfd0Ext = 8 + ifd0HeaderLen + exifHeaderLen + gpsObj.header.length;
+
+        const fixed0 = new Uint8Array(ifd0Obj.header);
+        const dv0 = new DataView(fixed0.buffer);
+        let extAcc = 0;
+        for (let i = 0; i < dv0.getUint16(0, true); i++) {
+            const off = 2 + i * 12;
+            const tag = dv0.getUint16(off, true);
+            const total = exifTypeSize(dv0.getUint16(off + 2, true)) * dv0.getUint32(off + 4, true);
+            if (tag === 0x8769) dv0.setUint32(off + 8, exifPtr, true);
+            else if (tag === 0x8825) dv0.setUint32(off + 8, gpsPtr, true);
+            else if (total > 4) { dv0.setUint32(off + 8, baseIfd0Ext + extAcc, true); extAcc += total; }
+        }
+
+        const alignEven = (n) => n + (n % 2);
+        const extIfd0Len = alignEven(ifd0Obj.external.reduce((s, d) => s + d.length, 0));
+        const fixSub = (obj, base) => {
+            const fixed = new Uint8Array(obj.header);
+            const dv = new DataView(fixed.buffer);
+            const n = dv.getUint16(0, true);
+            let acc = 0;
+            for (let i = 0; i < n; i++) {
+                const off = 2 + i * 12;
+                const total = exifTypeSize(dv.getUint16(off + 2, true)) * dv.getUint32(off + 4, true);
+                if (total > 4) { dv.setUint32(off + 8, base + acc, true); acc += total; }
+            }
+            return fixed;
+        };
+        const baseExifExt = baseIfd0Ext + extIfd0Len;
+        const exifH = fixSub(exifObj, baseExifExt);
+        const baseGpsExt = baseExifExt + alignEven(exifObj.external.reduce((s, d) => s + d.length, 0));
+        const gpsH = fixSub(gpsObj, baseGpsExt);
+
+        const pad = (n) => { const p = []; while (n % 2) { p.push(new Uint8Array(1)); n++; } return p; };
+        const parts = [
+            new Uint8Array([0x49, 0x49, 42, 0, 8, 0, 0, 0]),
+            fixed0, exifH, gpsH,
+            ...ifd0Obj.external, ...pad(extIfd0Len - ifd0Obj.external.reduce((s, d) => s + d.length, 0)),
+            ...exifObj.external, ...pad(baseGpsExt - baseExifExt - exifObj.external.reduce((s, d) => s + d.length, 0)),
+            ...gpsObj.external
+        ];
+        const total = parts.reduce((s, p) => s + p.length, 0);
+        const out = new Uint8Array(total);
+        let o = 0;
+        for (const p of parts) { out.set(p, o); o += p.length; }
+        return out;
+    }
+
+    // PNG：在 IEND 前插入 EXIF。双写两份（工具兼容性最大化）：
+    //   1. eXIf 块 —— PNG 1.2 扩展标准写法（新工具支持）
+    //   2. tEXt "Raw profile type exif" —— ImageMagick 传统写法（PIL / exiftool / 老工具支持）
+    async function injectExifPng(fileBytes, tiff) {
+        const chunks = ApngCodec.parseChunks(fileBytes);
+        const exifChunk = ApngCodec.chunkBytes("eXIf", tiff);
+        // tEXt payload: keyword\0 + "exif\n" + hex长度 + "\n" + hex数据(72字符/行) + "\n"
+        const hexLines = [];
+        const hex = Array.from(tiff).map(b => b.toString(16).padStart(2, "0")).join("");
+        for (let i = 0; i < hex.length; i += 72) hexLines.push(hex.slice(i, i + 72));
+        const textPayload = new Uint8Array([
+            ...new TextEncoder().encode("Raw profile type exif\0"),
+            ...new TextEncoder().encode(`exif\n${tiff.length}\n${hexLines.join("\n")}\n`)
+        ]);
+        const textChunk = ApngCodec.chunkBytes("tEXt", textPayload);
+        const parts = [fileBytes.slice(0, 8)];   // PNG 签名
+        let injected = false;
+        for (const c of chunks) {
+            if (c.type === "IEND") { parts.push(exifChunk); parts.push(textChunk); injected = true; }
+            parts.push(ApngCodec.chunkBytes(c.type, c.payload));
+        }
+        if (!injected) throw new Error("PNG 结构异常");
+        return new Blob(parts, { type: "image/png" });
+    }
+
+    // JPEG：SOI 后插入 APP1("Exif\0\0" + TIFF)
+    async function injectExifJpeg(fileBytes, tiff) {
+        if (fileBytes[0] !== 0xFF || fileBytes[1] !== 0xD8) throw new Error("JPEG 结构异常");
+        // APP1 段：FF E1 + 段长(2B, 含长度字段自身) + "Exif\0\0"(6B) + TIFF
+        const segLen = 2 + 6 + tiff.length;   // 长度字段本身 + "Exif\0\0" + TIFF
+        const app1 = new Uint8Array(4 + tiff.length + 6);
+        app1[0] = 0xFF; app1[1] = 0xE1;
+        app1[2] = (segLen >> 8) & 0xFF; app1[3] = segLen & 0xFF;
+        app1.set(new TextEncoder().encode("Exif\0\0"), 4);
+        app1.set(tiff, 10);
+        const parts = [fileBytes.slice(0, 2), app1, fileBytes.slice(2)];
+        return new Blob(parts, { type: "image/jpeg" });
+    }
+
+    // EXIF 写入主入口：接收 cleanSources 里的原始文件字节
+    async function injectExifToFile(fileOrBytes, fields) {
+        const raw = fileOrBytes instanceof Uint8Array ? fileOrBytes : new Uint8Array(await fileOrBytes.arrayBuffer());
+        const tiff = buildExifTiff(fields);
+        if (raw[0] === 0x89 && raw[1] === 0x50) return await injectExifPng(raw, tiff);
+        if (raw[0] === 0xFF && raw[1] === 0xD8) return await injectExifJpeg(raw, tiff);
+        throw new Error("仅支持 PNG / JPG（WEBP 请先在「格式转换」里转）");
+    }
+
+    // EXIF 写入模板（取自真实 OnePlus 13 样张：竖拍=主摄，横拍=超广角）
+    const EXIF_TEMPLATES = {
+        portrait: {
+            make: "OnePlus", model: "OnePlus 13",
+            lens: "OnePlus 13 back camera 6.06mm f/1.6",
+            exposure: "1/100", fnumber: "1.6", iso: "196", focal: "6.06"
+        },
+        landscape: {
+            make: "OnePlus", model: "OnePlus 13",
+            lens: "OnePlus 13 back camera 2.30mm f/2.0",
+            exposure: "1/777", fnumber: "2.0", iso: "160", focal: "2.3"
+        }
+    };
+    document.querySelectorAll("#exif-template-group .segmented-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            document.querySelectorAll("#exif-template-group .segmented-btn").forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+            const tpl = EXIF_TEMPLATES[btn.getAttribute("data-tpl")];
+            document.getElementById("exif-make").value = tpl.make;
+            document.getElementById("exif-model").value = tpl.model;
+            document.getElementById("exif-lens").value = tpl.lens;
+            document.getElementById("exif-exposure").value = tpl.exposure;
+            document.getElementById("exif-fnumber").value = tpl.fnumber;
+            document.getElementById("exif-iso").value = tpl.iso;
+            document.getElementById("exif-focal").value = tpl.focal;
+            // 时间/GPS 不动（用户自己填，模板不含位置隐私）
+        });
+    });
+    // 默认填充竖拍模板（页面加载即预填，用户可改）
+    document.getElementById("exif-make").value = EXIF_TEMPLATES.portrait.make;
+    document.getElementById("exif-model").value = EXIF_TEMPLATES.portrait.model;
+    document.getElementById("exif-lens").value = EXIF_TEMPLATES.portrait.lens;
+    document.getElementById("exif-exposure").value = EXIF_TEMPLATES.portrait.exposure;
+    document.getElementById("exif-fnumber").value = EXIF_TEMPLATES.portrait.fnumber;
+    document.getElementById("exif-iso").value = EXIF_TEMPLATES.portrait.iso;
+    document.getElementById("exif-focal").value = EXIF_TEMPLATES.portrait.focal;
+
+    // EXIF 写入按钮
+    document.getElementById("btn-exif-write").addEventListener("click", async () => {
+        if (cleanSources.length === 0) { alert("请先在第 1 步选择图片"); return; }
+        const src = cleanSources[0];   // 对第一张操作
+        // 拍摄时间：留空自动用当前时间（与真实拍摄行为一致）
+        const dtInput = document.getElementById("exif-datetime").value.trim();
+        const datetime = dtInput || (() => {
+            const d = new Date();
+            const p = (n, l = 2) => String(n).padStart(l, "0");
+            return `${d.getFullYear()}:${p(d.getMonth() + 1)}:${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+        })();
+        const fields = {
+            make: document.getElementById("exif-make").value.trim(),
+            model: document.getElementById("exif-model").value.trim(),
+            lens: document.getElementById("exif-lens").value.trim(),
+            modify: document.getElementById("exif-modify").value.trim() || datetime,
+            datetime,
+            pixelW: src.canvas.width, pixelH: src.canvas.height,
+        };
+        // 曝光时间解析：支持 "1/100" 与 "0.01" 两种写法
+        const expS = document.getElementById("exif-exposure").value.trim();
+        if (expS) {
+            const m = expS.match(/^(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)$/);
+            fields.exposureSec = m ? (parseFloat(m[1]) / parseFloat(m[2])) : parseFloat(expS);
+            if (!isFinite(fields.exposureSec) || fields.exposureSec <= 0) { alert("曝光时间无效（如 1/100 或 0.01）"); return; }
+        }
+        const fnS = document.getElementById("exif-fnumber").value.trim();
+        if (fnS) { const v = parseFloat(fnS); if (!isFinite(v) || v <= 0) { alert("光圈 F 值无效"); return; } fields.fnumber = v; }
+        const isoS = document.getElementById("exif-iso").value.trim();
+        if (isoS) { const v = parseInt(isoS, 10); if (!isFinite(v) || v <= 0) { alert("ISO 无效"); return; } fields.iso = v; }
+        const foS = document.getElementById("exif-focal").value.trim();
+        if (foS) { const v = parseFloat(foS); if (!isFinite(v) || v <= 0) { alert("焦距无效"); return; } fields.focal = v; }
+        const latS = document.getElementById("exif-lat").value.trim();
+        const lonS = document.getElementById("exif-lon").value.trim();
+        if (latS) { const v = parseFloat(latS); if (!isFinite(v) || Math.abs(v) > 90) { alert("纬度无效（十进制度，-90~90）"); return; } fields.lat = v; }
+        if (lonS) { const v = parseFloat(lonS); if (!isFinite(v) || Math.abs(v) > 180) { alert("经度无效（十进制度，-180~180）"); return; } fields.lon = v; }
+        if (!fields.make && !fields.model && !fields.datetime && fields.lat === undefined && fields.lon === undefined) {
+            alert("请至少填写一项要写入的信息"); return;
+        }
+        const btn = document.getElementById("btn-exif-write");
+        btn.disabled = true;
+        btn.textContent = "⏳ 写入中...";
+        try {
+            const blob = await injectExifToFile(src.bytes, fields);
+            const dot = src.filename.lastIndexOf(".");
+            const base = dot > 0 ? src.filename.slice(0, dot) : src.filename;
+            const ext = dot > 0 ? src.filename.slice(dot + 1).toLowerCase() : "png";
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            a.download = `${base}_exif.${ext}`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            const written = [fields.make && "品牌", fields.model && "型号", fields.lens && "镜头", fields.exposureSec !== undefined && "曝光", fields.fnumber !== undefined && "光圈", fields.iso !== undefined && "ISO", fields.focal !== undefined && "焦距", fields.datetime && "时间", fields.lat !== undefined && "GPS"].filter(Boolean).join(" / ");
+            document.getElementById("txt-exif-result").textContent =
+                `已写入（${written}）并保存为 ${base}_exif.${ext}；用「信息查看」重新导入该文件即可核对`;
+        } catch (e) {
+            alert("写入失败: " + e.message);
+            document.getElementById("txt-exif-result").textContent = "写入失败: " + e.message;
+        }
+        btn.disabled = false;
+        btn.textContent = "✍️ 写入并保存";
+    });
 
     // 8.2 电子包浆（复刻 Electrical Weathering v4，纯 Canvas 实现）
     // 管线：可选水印 → 噪点(高斯混合) → 泛绿 → 压缩/缩放（官窑与民窑步骤顺序不同）
@@ -3472,15 +3901,30 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     });
 
-    // 8.3.2 九宫格切图：3x3 九等分，可选先裁方正方形
+    // 8.3.2 九宫格切图：3x3 / 2x2 / 1x3 / 2x3 等分布局，可选先裁方正方形
     const boxGrid = document.getElementById("box-grid-upload");
     const inputGrid = document.getElementById("input-grid-image");
     let gridSourceCanvas = null;
     let gridMode = "square";
+    let gridRows = 3, gridCols = 3;
     let gridResults = [];
 
     boxGrid.addEventListener("click", () => inputGrid.click());
     enableDropUpload(boxGrid, inputGrid);
+
+    // 布局切换：1xN（单行条状）没有"裁正方形"概念，自动禁用裁切选项
+    document.querySelectorAll("#grid-layout-group .segmented-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            document.querySelectorAll("#grid-layout-group .segmented-btn").forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+            gridRows = parseInt(btn.getAttribute("data-rows"), 10);
+            gridCols = parseInt(btn.getAttribute("data-cols"), 10);
+            const singleRow = gridRows === 1;
+            const sqRow = document.getElementById("row-grid-square");
+            sqRow.style.opacity = singleRow ? ".45" : "";
+            sqRow.style.pointerEvents = singleRow ? "none" : "";
+        });
+    });
 
     document.querySelectorAll("#grid-mode-group .segmented-btn").forEach(btn => {
         btn.addEventListener("click", () => {
@@ -3528,7 +3972,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function gridSourceRegion() {
         const w = gridSourceCanvas.width, h = gridSourceCanvas.height;
-        if (gridMode !== "square") return { sx: 0, sy: 0, sw: w, sh: h };
+        if (gridMode !== "square" || gridRows === 1) return { sx: 0, sy: 0, sw: w, sh: h };
         const side = Math.min(w, h);
         return { sx: Math.floor((w - side) / 2), sy: Math.floor((h - side) / 2), sw: side, sh: side };
     }
@@ -3537,20 +3981,21 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!gridSourceCanvas) { alert("请先选择一张图片"); return; }
         clearGridResults();
         const { sx, sy, sw, sh } = gridSourceRegion();
-        const cw = Math.floor(sw / 3), ch = Math.floor(sh / 3);
+        const cw = Math.floor(sw / gridCols), ch = Math.floor(sh / gridRows);
+        const total = gridRows * gridCols;
         let done = 0;
         const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14);
-        for (let r = 0; r < 3; r++) {
-            for (let c = 0; c < 3; c++) {
+        for (let r = 0; r < gridRows; r++) {
+            for (let c = 0; c < gridCols; c++) {
                 const piece = document.createElement("canvas");
                 piece.width = cw;
                 piece.height = ch;
                 piece.getContext("2d").drawImage(gridSourceCanvas, sx + c * cw, sy + r * ch, cw, ch, 0, 0, cw, ch);
                 piece.toBlob(blob => {
-                    const filename = `${r * 3 + c + 1}_grid_${stamp}.png`;
+                    const filename = `${r * gridCols + c + 1}_grid_${stamp}.png`;
                     gridResults.push({ blob, url: URL.createObjectURL(blob), filename });
                     done++;
-                    if (done === 9) finishGrid();
+                    if (done === total) finishGrid();
                 }, "image/png");
             }
         }
@@ -3577,11 +4022,15 @@ document.addEventListener("DOMContentLoaded", () => {
                 list.appendChild(el);
             });
         const w = gridSourceCanvas.width, h = gridSourceCanvas.height;
-        document.getElementById("txt-grid-result-title").textContent = "#️⃣ 切图完成 (共 9 张)";
-        document.getElementById("txt-grid-summary").textContent =
-            gridMode === "square"
-                ? `已居中裁成正方形后九等分 | 原图 ${w}x${h} → 每块 ${Math.floor(Math.min(w, h) / 3)}px`
-                : `原图完整九等分（不裁剪）| ${w}x${h} → 每块 ${Math.floor(w / 3)}x${Math.floor(h / 3)}`;
+        const total = gridRows * gridCols;
+        document.getElementById("txt-grid-result-title").textContent = `#️⃣ 切图完成 (共 ${total} 张)`;
+        list.style.gridTemplateColumns = `repeat(${gridCols}, 1fr)`;
+        // 缩略图宽高比与切块一致（单行条状块不再强制正方形）
+        list.querySelectorAll("img").forEach(im => { im.style.aspectRatio = `${gridCols} / ${gridRows}`; });
+        const squareApplied = gridMode === "square" && gridRows > 1;
+        document.getElementById("txt-grid-summary").textContent = squareApplied
+            ? `已居中裁成正方形后 ${gridRows}x${gridCols} 等分 | 原图 ${w}x${h} → 每块 ${Math.floor(Math.min(w, h) / gridRows)}px`
+            : `原图完整 ${gridRows}x${gridCols} 等分（不裁剪）| ${w}x${h} → 每块 ${Math.floor(w / gridCols)}x${Math.floor(h / gridRows)}`;
         document.getElementById("card-grid-result").style.display = "block";
     }
 
@@ -4241,10 +4690,29 @@ document.addEventListener("DOMContentLoaded", () => {
     // 数据模型：md5Items = [{ file, name, size, bytes(Uint8Array), hashes }]，逐项独立展示
     const boxMd5 = document.getElementById("box-md5-upload");
     const inputMd5 = document.getElementById("input-md5-file");
+    const boxMd5Img = document.getElementById("box-md5-img");
+    const inputMd5Img = document.getElementById("input-md5-image");
     let md5Items = [];
 
+
+    // 通用导入：全部进同一份 md5Items（分框只是入口不同）
+    async function importMd5Files(files) {
+        let added = 0;
+        for (const file of files) {
+            try {
+                const bytes = new Uint8Array(await file.arrayBuffer());
+                md5Items.push({ file, name: file.name, size: file.size, bytes });
+                added++;
+            } catch (err) { /* 跳过 */ }
+        }
+        if (added) { renderMd5List(); refreshMd5Badge(); }
+    }
+
+    // 两个框：点击调各自的 input（图片框带 accept="image/*"，手机调相册）
     boxMd5.addEventListener("click", () => inputMd5.click());
     enableDropUpload(boxMd5, inputMd5);
+    boxMd5Img.addEventListener("click", () => inputMd5Img.click());
+    enableDropUpload(boxMd5Img, inputMd5Img);
 
     // 五种哈希：MD5 自实现（RFC 1321），SHA 系列走 Web Crypto
     const MD5_ALGOS = [
@@ -4386,9 +4854,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const badge = document.getElementById("badge-md5-info");
         if (md5Items.length === 0) {
             badge.style.display = "none";
-            boxMd5.querySelector(".upload-icon").style.display = "";
-            boxMd5.querySelector(".upload-text").style.display = "";
-            boxMd5.querySelector(".upload-hint").style.display = "";
+            resetMd5Box();
             return;
         }
         badge.style.display = "block";
@@ -4398,10 +4864,7 @@ document.addEventListener("DOMContentLoaded", () => {
             : `已选 ${md5Items.length} 个文件`;
     }
 
-    inputMd5.addEventListener("change", async (e) => {
-        const files = e.target.files ? Array.from(e.target.files) : [];
-        e.target.value = "";
-        if (files.length === 0) return;
+    async function importMd5WithHashes(files) {
         for (const file of files) {
             try {
                 const buf = new Uint8Array(await file.arrayBuffer());
@@ -4411,6 +4874,22 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         renderMd5List();
         refreshMd5Badge();
+    }
+
+    // 两个入口共用同一套导入逻辑；enableDropUpload 会把拖入文件写回各自的 input
+    // 并派发 change，因此无论拖到"选择文件"还是"选择图片"框，都会正确识别导入
+    inputMd5.addEventListener("change", async (e) => {
+        const files = e.target.files ? Array.from(e.target.files) : [];
+        e.target.value = "";
+        if (files.length === 0) return;
+        await importMd5WithHashes(files);
+    });
+
+    inputMd5Img.addEventListener("change", async (e) => {
+        const files = e.target.files ? Array.from(e.target.files) : [];
+        e.target.value = "";
+        if (files.length === 0) return;
+        await importMd5WithHashes(files);
     });
 
     document.getElementById("btn-md5-copy").addEventListener("click", async () => {
@@ -4451,6 +4930,38 @@ document.addEventListener("DOMContentLoaded", () => {
     boxCp.addEventListener("click", () => inputCp.click());
     enableDropUpload(boxCp, inputCp);
 
+    function refreshCpBadge() {
+        const badge = document.getElementById("badge-cp-info");
+        if (cpItems.length === 0) {
+            badge.style.display = "none";
+            boxCp.querySelector(".upload-icon").style.display = "";
+            boxCp.querySelector(".upload-text").style.display = "";
+            boxCp.querySelector(".upload-hint").style.display = "";
+            return;
+        }
+        badge.style.display = "block";
+        badge.style.color = "";
+        badge.textContent = `已选 ${cpItems.length} 张图片`;
+    }
+
+    function renderCpFileList() {
+        renderFileList(cpItems, (i) => {
+            cpItems.splice(i, 1);
+            cpImgCache.splice(i, 1);
+            renderCpFileList();
+            refreshCpBadge();
+            renderCpPreview();
+        }, { containerId: "cp-file-list", actionsId: "cp-file-actions" });
+    }
+
+    document.getElementById("btn-cp-clearfiles").addEventListener("click", () => {
+        cpItems = [];
+        cpImgCache = [];
+        renderCpFileList();
+        refreshCpBadge();
+        renderCpPreview();
+    });
+
     const cpQualitySlider = document.getElementById("cp-slider-quality");
     cpQualitySlider.addEventListener("input", () => {
         document.getElementById("cp-val-quality").textContent = Math.round(cpQualitySlider.value * 100) + "%";
@@ -4469,24 +4980,99 @@ document.addEventListener("DOMContentLoaded", () => {
             document.querySelectorAll("#cp-mode-group .segmented-btn").forEach(b => b.classList.remove("active"));
             btn.classList.add("active");
             cpMode = btn.getAttribute("data-cp-mode");
-            // 尺寸滑条仅在"仅尺寸/画质+尺寸"下可用
-            const scaleOn = cpMode !== "quality";
-            document.getElementById("row-cp-scale").style.opacity = scaleOn ? "" : ".45";
-            document.getElementById("row-cp-scale").style.pointerEvents = scaleOn ? "" : "none";
-            // 仅尺寸时画质固定 1.0（最高画质输出），画质滑条禁用
-            const qualityOn = cpMode !== "scale";
-            cpQualitySlider.disabled = !qualityOn;
-            document.getElementById("cp-val-quality").style.opacity = qualityOn ? "" : ".45";
-            document.getElementById("cp-slider-quality").style.opacity = qualityOn ? "" : ".45";
-            document.getElementById("txt-cp-size-hint").textContent = scaleOn
-                ? `等比例缩放：宽高同时缩放，不变形；输出仍为 JPG`
-                : "只调画质：保持原尺寸像素不变";
+            applyCpModeUI();
             scheduleCpPreview();
         });
     });
 
+    function applyCpModeUI() {
+        // 目标体积模式：画质/尺寸滑条都禁用（由算法自动决定）
+        const target = cpMode === "target";
+        const scaleOn = cpMode === "scale" || cpMode === "both";
+        const qualityOn = cpMode === "quality" || cpMode === "both";
+        document.getElementById("row-cp-scale").style.opacity = scaleOn ? "" : ".45";
+        document.getElementById("row-cp-scale").style.pointerEvents = scaleOn ? "" : "none";
+        cpQualitySlider.disabled = !qualityOn;
+        document.getElementById("cp-val-quality").style.opacity = qualityOn ? "" : ".45";
+        document.getElementById("cp-slider-quality").style.opacity = qualityOn ? "" : ".45";
+        const tRow = document.getElementById("row-cp-target");
+        tRow.style.opacity = target ? "" : ".45";
+        tRow.style.pointerEvents = target ? "" : "none";
+        document.getElementById("txt-cp-size-hint").textContent = target
+            ? "目标体积：出图不超过目标（按 1024 进制，1KB=1024 字节）；二分画质 + 细步探测贴到 JPEG 台阶沿"
+            : (scaleOn
+                ? "等比例缩放：宽高同时缩放，不变形；输出仍为 JPG"
+                : "只调画质：保持原尺寸像素不变");
+    }
+
+    // 读取目标体积（KB/张），非法输入返回 null
+    function readCpTargetKB() {
+        const v = parseFloat(document.getElementById("input-cp-target").value);
+        return (isFinite(v) && v > 0) ? v : null;
+    }
+    document.getElementById("input-cp-target").addEventListener("input", () => scheduleCpPreview());
+
+    /**
+     * 目标体积模式：对一张图（Image）求"不超过目标 KB 的最高画质参数"。
+     * 策略：先用小画布粗估画质曲线，再在 0.1~1.0 上二分画质；仍超标则等比降尺寸（10% 步进，最低 30%）。
+     * 返回 { quality, scale, size }（size 为估算字节数）
+     */
+        // JPEG 编码（toBlob 的 Promise 化）——求解与保存共用同一条编码路径，保证体积一致
+    function jpegBlob(cv, q) {
+        return new Promise(res => cv.toBlob(res, "image/jpeg", q));
+    }
+
+    async function solveCpTarget(img, targetKB) {
+        const targetBytes = targetKB * 1024;
+        const w0 = img.naturalWidth || img.width, h0 = img.naturalHeight || img.height;
+        let scale = 1;   // 相对原图的尺寸比例
+        let best = null;
+        // 直接在"实际输出尺寸"的画布上二分（与保存完全同源），试算体积 = 出图体积
+        for (let round = 0; round < 7; round++) {
+            const w = Math.max(16, Math.round(w0 * scale));
+            const h = Math.max(16, Math.round(h0 * scale));
+            const cv = document.createElement("canvas");
+            cv.width = w; cv.height = h;
+            cv.getContext("2d").drawImage(img, 0, 0, w, h);
+            // 二分画质（8 轮，区间 0.1~1.0）
+            let lo = 0.1, hi = 1.0, size = 0;
+            for (let it = 0; it < 8; it++) {
+                const q = (lo + hi) / 2;
+                const b = await jpegBlob(cv, q);
+                size = b.size;
+                if (size <= targetBytes) lo = q; else hi = q;
+            }
+            const bq = await jpegBlob(cv, lo);
+            size = bq.size;
+            if (size <= targetBytes) {
+                // 细步探测：JPEG 体积-画质是阶梯曲线，二分停在了台阶下沿。
+                // 以 0.002 为步长向上爬，把台阶缝隙里的画质吃干净（能贴多少贴多少）
+                let q2 = lo, s2 = size;
+                for (let step = 0; step < 20; step++) {
+                    const probe = Math.min(1.0, q2 + 0.002);
+                    if (probe === q2) break;
+                    const bp = await jpegBlob(cv, probe);
+                    if (bp.size <= targetBytes) { q2 = probe; s2 = bp.size; }
+                    else break;
+                }
+                best = { quality: q2, scale, size: s2 };
+                break;   // 当前尺寸下已能达标
+            }
+            // 画质压到下限还超标 → 降尺寸再试
+            scale = Math.max(0.3, scale - 0.1);
+        }
+        if (!best) {
+            const w = Math.max(16, Math.round(w0 * scale)), h = Math.max(16, Math.round(h0 * scale));
+            const cv = document.createElement("canvas");
+            cv.width = w; cv.height = h;
+            cv.getContext("2d").drawImage(img, 0, 0, w, h);
+            const b = await jpegBlob(cv, 0.1);
+            best = { quality: 0.1, scale, size: b.size };
+        }
+        return best;
+    }
     // 实时预览：竖排大图（每张画压缩后的 JPEG，画质所见即所得）+ 逐张体积对比 + 单删/全删
-    function renderCpPreview() {
+    async function renderCpPreview() {
         const list = document.getElementById("cp-result-list");
         const card = document.getElementById("card-cp-result");
         const gallery = document.getElementById("cp-preview-gallery");
@@ -4500,25 +5086,34 @@ document.addEventListener("DOMContentLoaded", () => {
         card.style.display = "block";
         list.innerHTML = "";
         gallery.innerHTML = "";
-        const quality = parseFloat(cpQualitySlider.value);
-        const scaleFactor = cpMode === "quality" ? 1 : parseFloat(cpScaleSlider.value);
+        const quality = cpMode === "scale" ? 1.0 : parseFloat(cpQualitySlider.value);
+        const scaleFactor = (cpMode === "quality" || cpMode === "target") ? 1 : parseFloat(cpScaleSlider.value);
+        const targetKB = cpMode === "target" ? readCpTargetKB() : null;
         let origTotal = 0, newTotal = 0;
-        cpItems.forEach((item, i) => {
+        for (const [i, item] of cpItems.entries()) {
             const img = cpImgCache[i];
             let newSize = item.size;
             if (img) {
                 // 预览画布：目标像素 = 原尺寸 × 等比缩放；再限制 ≤480 宽用于展示
                 const w0 = img.naturalWidth || img.width, h0 = img.naturalHeight || img.height;
-                const targetW = Math.max(1, Math.round(w0 * scaleFactor));
-                const targetH = Math.max(1, Math.round(h0 * scaleFactor));
+                const sol = cpMode === "target" ? await solveCpTarget(img, targetKB || 500) : null;
+                const effScale = cpMode === "target" ? sol.scale : scaleFactor;
+                const targetW = Math.max(1, Math.round(w0 * effScale));
+                const targetH = Math.max(1, Math.round(h0 * effScale));
                 const k = Math.min(1, 480 / targetW);
                 const cv = document.createElement("canvas");
                 cv.width = Math.max(1, Math.round(targetW * k));
                 cv.height = Math.max(1, Math.round(targetH * k));
                 cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
-                const dataUrl = cv.toDataURL("image/jpeg", quality);
-                newSize = Math.round((dataUrl.length - dataUrl.indexOf(",") - 1) * 3 / 4);
-                if (k < 1) newSize = Math.round(newSize / (k * k));   // 体积与像素量近似线性，回折到目标尺寸量级
+                const effQ = cpMode === "target" ? sol.quality : quality;
+                const dataUrl = cv.toDataURL("image/jpeg", effQ);
+                if (cpMode === "target") {
+                    // 目标体积模式：sol.size 是全尺寸真实编码体积，直接采用（预览缩略图仅作画质示意）
+                    newSize = sol.size;
+                } else {
+                    newSize = Math.round((dataUrl.length - dataUrl.indexOf(",") - 1) * 3 / 4);
+                    if (k < 1) newSize = Math.round(newSize / (k * k));   // 体积与像素量近似线性，回折到目标尺寸量级
+                }
 
                 const itemEl = document.createElement("div");
                 itemEl.className = "cp-preview-item";
@@ -4529,7 +5124,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 const saved = item.size > 0 ? Math.max(0, Math.round((1 - newSize / item.size) * 100)) : 0;
                 itemEl.innerHTML = `<div class="cp-preview-label"><span>${i + 1}. ${item.name}</span>` +
                     (dimChanged ? `<span style="color: var(--primary);">${w0}×${h0} → ${targetW}×${targetH}</span>` : "") +
-                    `<span>${(item.size / 1024).toFixed(0)}KB → ${(newSize / 1024).toFixed(0)}KB</span>` +
+                    `<span>${(item.size / 1024).toFixed(0)}KB → ${(newSize / 1024).toFixed(0)}KB（${newSize.toLocaleString()} 字节）</span>` +
                     `<b>${saved > 0 ? "省" + saved + "%" : "—"}</b></div>`;
                 const del = document.createElement("button");
                 del.className = "cp-preview-del";
@@ -4555,11 +5150,17 @@ document.addEventListener("DOMContentLoaded", () => {
                 `<span style="color: ${newSize < item.size ? "var(--success)" : "var(--text-faint)"};">` +
                 `${(item.size / 1024).toFixed(0)}KB → ${(newSize / 1024).toFixed(0)}KB（省 ${saved}%）</span></div>`;
             list.appendChild(row);
-        });
-        document.getElementById("txt-cp-live").textContent = `已选 ${cpItems.length} 张 · 画质 ${Math.round(quality * 100)}%` +
-            (cpMode !== "quality" ? ` · 尺寸 ${Math.round(scaleFactor * 100)}%` : "");
-        summary.textContent = `实时预览（缩略为画质示意，保存按设置的高清压缩）| 总计 ${(origTotal / 1024 / 1024).toFixed(2)}MB → ~${(newTotal / 1024 / 1024).toFixed(2)}MB` +
-            (newTotal < origTotal ? `（省 ${Math.round((1 - newTotal / origTotal) * 100)}%）` : "（当前设置体积增大，建议降低画质或尺寸）");
+        }
+        document.getElementById("txt-cp-live").textContent = cpMode === "target"
+            ? `已选 ${cpItems.length} 张 · 目标 ${targetKB || "?"}KB/张`
+            : `已选 ${cpItems.length} 张 · 画质 ${Math.round(quality * 100)}%` +
+              (cpMode !== "quality" ? ` · 尺寸 ${Math.round(scaleFactor * 100)}%` : "");
+        if (cpMode === "target") {
+            summary.textContent = `目标体积模式（出图不超过目标，预览即最终体积）| 总计 ${(origTotal / 1024 / 1024).toFixed(2)}MB → ${(newTotal / 1024 / 1024).toFixed(2)}MB`;
+        } else {
+            summary.textContent = `实时预览（缩略为画质示意，保存按设置的高清压缩）| 总计 ${(origTotal / 1024 / 1024).toFixed(2)}MB → ~${(newTotal / 1024 / 1024).toFixed(2)}MB` +
+                (newTotal < origTotal ? `（省 ${Math.round((1 - newTotal / origTotal) * 100)}%）` : "（当前设置体积增大，建议降低画质或尺寸）");
+        }
     }
 
     // 缓存已解码 Image（避免滑条拖动时反复解码源文件）
@@ -4582,21 +5183,30 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById("badge-cp-info").style.display = "none";
     });
 
-    document.getElementById("btn-cp-download").addEventListener("click", () => {
+    document.getElementById("btn-cp-download").addEventListener("click", async () => {
         if (cpItems.length === 0) { alert("请先选择图片"); return; }
         const quality = cpMode === "scale" ? 1.0 : parseFloat(cpQualitySlider.value);
-        const scaleFactor = cpMode === "quality" ? 1 : parseFloat(cpScaleSlider.value);
+        const scaleFactor = (cpMode === "quality" || cpMode === "target") ? 1 : parseFloat(cpScaleSlider.value);
+        const targetKB = cpMode === "target" ? readCpTargetKB() : null;
         const btn = document.getElementById("btn-cp-download");
         btn.disabled = true;
         btn.textContent = "⏳ 高清压缩中...";
         let done = 0;
-        cpItems.forEach((item, i) => {
+        (async () => {
+        for (const [i, item] of cpItems.entries()) {
             const img = new Image();
-            img.onload = () => {
+            img.src = URL.createObjectURL(new Blob([item.bytes]));
+            await new Promise(res => { img.onload = res; img.onerror = res; });
+            {
+                let q = quality, sc = scaleFactor;
+                if (cpMode === "target") {
+                    const sol = await solveCpTarget(img, targetKB);
+                    q = sol.quality; sc = sol.scale;
+                }
                 const w0 = img.naturalWidth || img.width, h0 = img.naturalHeight || img.height;
                 const cv = document.createElement("canvas");
-                cv.width = Math.max(1, Math.round(w0 * scaleFactor));
-                cv.height = Math.max(1, Math.round(h0 * scaleFactor));
+                cv.width = Math.max(1, Math.round(w0 * sc));
+                cv.height = Math.max(1, Math.round(h0 * sc));
                 cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
                 cv.toBlob(blob => {
                     if (blob) {
@@ -4604,7 +5214,9 @@ document.addEventListener("DOMContentLoaded", () => {
                         const base = dot > 0 ? item.name.slice(0, dot) : item.name;
                         const a = document.createElement("a");
                         a.href = URL.createObjectURL(blob);
-                        a.download = scaleFactor < 1 ? `${base}_${Math.round(scaleFactor * 100)}percent.jpg` : `${base}_compressed.jpg`;
+                        a.download = cpMode === "target"
+                            ? `${base}_${targetKB}kb.jpg`
+                            : (scaleFactor < 1 ? `${base}_${Math.round(scaleFactor * 100)}percent.jpg` : `${base}_compressed.jpg`);
                         document.body.appendChild(a);
                         a.click();
                         document.body.removeChild(a);
@@ -4614,10 +5226,10 @@ document.addEventListener("DOMContentLoaded", () => {
                         btn.disabled = false;
                         btn.textContent = "💾 一键保存全部";
                     }
-                }, "image/jpeg", quality);
-            };
-            img.src = URL.createObjectURL(new Blob([item.bytes]));
-        });
+                }, "image/jpeg", q);
+            }
+        }
+        })();
     });
 
     inputCp.addEventListener("change", async (e) => {
@@ -4637,6 +5249,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const badge = document.getElementById("badge-cp-info");
         badge.style.display = "block";
         badge.textContent = `已选 ${cpItems.length} 张图片`;
+        renderCpFileList();
         renderCpPreview();
     });
 
@@ -4652,33 +5265,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // 已选文件列表（选图即显示，✕ 移除单个，全部移除按钮）
     function renderCvFileList() {
-        const listEl = document.getElementById("cv-file-list");
-        const actionsEl = document.getElementById("cv-file-actions");
-        listEl.innerHTML = "";
-        actionsEl.style.display = cvItems.length ? "flex" : "none";
-        cvItems.forEach((item, i) => {
-            const row = document.createElement("div");
-            row.className = "merge-file-item";
-            const order = document.createElement("span");
-            order.className = "merge-file-order";
-            order.textContent = String(i + 1);
-            const name = document.createElement("span");
-            name.className = "merge-file-name";
-            name.textContent = `${item.name} (${(item.size / 1024).toFixed(0)} KB)`;
-            const del = document.createElement("button");
-            del.className = "merge-file-del";
-            del.textContent = "✕";
-            del.title = "移除";
-            del.addEventListener("click", () => {
-                cvItems.splice(i, 1);
-                renderCvFileList();
-                refreshCvBadge();
-            });
-            row.appendChild(order);
-            row.appendChild(name);
-            row.appendChild(del);
-            listEl.appendChild(row);
-        });
+        renderFileList(cvItems, (i) => {
+            cvItems.splice(i, 1);
+            renderCvFileList();
+            refreshCvBadge();
+        }, { containerId: "cv-file-list", actionsId: "cv-file-actions" });
     }
 
     function refreshCvBadge() {
@@ -4832,9 +5423,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
 
     function resetMd5Box() {
-        boxMd5.querySelector(".upload-icon").style.display = "";
-        boxMd5.querySelector(".upload-text").style.display = "";
-        boxMd5.querySelector(".upload-hint").style.display = "";
+        [boxMd5, boxMd5Img].forEach(box => {
+            box.querySelector(".upload-icon").style.display = "";
+            box.querySelector(".upload-text").style.display = "";
+            box.querySelector(".upload-hint").style.display = "";
+        });
     }
 
     // 批量修改：所有文件末尾追加 [主字节][副字节][随机]（每个文件独立随机）→ 逐个下载
@@ -5251,7 +5844,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
             const dt = e.dataTransfer;
             if (!dt || !dt.files || dt.files.length === 0) {
-                alert("没有检测到文件，请把本地图片文件拖拽到这里");
+                alert("没有检测到文件，请把本地文件拖到这里");
                 return;
             }
 

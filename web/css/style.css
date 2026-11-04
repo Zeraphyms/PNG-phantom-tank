@@ -1205,9 +1205,18 @@ html.dark .cover-row {
   white-space: nowrap;
 }
 
-/* 九宫格切图结果：固定 3x3 排布，还原切图布局 */
-.grid-3x3 {
-  grid-template-columns: repeat(3, 1fr) !important;
+
+/* 九宫格切图：布局/裁切选择器撑满整行（ew-slider-row 内的 segmented 默认收缩太挤） */
+#grid-layout-group,
+#grid-mode-group {
+  flex: 1;
+  min-width: 0;
+}
+
+#grid-layout-group .segmented-btn,
+#grid-mode-group .segmented-btn {
+  padding: 8px 4px;
+  white-space: nowrap;
 }
 
 /* ===== 覆盖图片 ===== */
@@ -1485,6 +1494,22 @@ html.dark .cover-row {
 }
 
 .cp-preview-del:hover { background: var(--danger); }
+
+/* MD5 工具：双上传框（左文件/右图片），窄屏纵向堆叠 */
+.md5-upload-row {
+  display: flex;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.md5-upload-row .upload-box {
+  flex: 1;
+  min-width: 0;
+}
+
+@media (max-width: 480px) {
+  .md5-upload-row { flex-direction: column; }
+}
 
 /* MD5 工具：多文件列表 */
 .md5-hash-list {
