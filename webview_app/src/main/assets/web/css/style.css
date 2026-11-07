@@ -624,9 +624,21 @@ html.dark .tab-bar {
 
 /* 圆角应用对象切换（单图/整图）：紧凑版分段按钮 */
 .merge-radius-mode {
-  flex: 0 0 auto;
-  scale: 0.82;
-  transform-origin: right center;
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex !important;
+  grid-auto-flow: unset;
+  border-radius: 999px;
+}
+.merge-radius-mode .segmented-btn {
+  white-space: nowrap;
+  padding: 6px 4px;
+  font-size: 13px;
+  flex: 1 1 0;
+  min-width: 0;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* ===== 内容区 ===== */
@@ -1205,9 +1217,18 @@ html.dark .cover-row {
   white-space: nowrap;
 }
 
-/* 九宫格切图结果：固定 3x3 排布，还原切图布局 */
-.grid-3x3 {
-  grid-template-columns: repeat(3, 1fr) !important;
+
+/* 九宫格切图：布局/裁切选择器撑满整行（ew-slider-row 内的 segmented 默认收缩太挤） */
+#grid-layout-group,
+#grid-mode-group {
+  flex: 1;
+  min-width: 0;
+}
+
+#grid-layout-group .segmented-btn,
+#grid-mode-group .segmented-btn {
+  padding: 8px 4px;
+  white-space: nowrap;
 }
 
 /* ===== 覆盖图片 ===== */
@@ -1485,6 +1506,22 @@ html.dark .cover-row {
 }
 
 .cp-preview-del:hover { background: var(--danger); }
+
+/* MD5 工具：双上传框（左文件/右图片），窄屏纵向堆叠 */
+.md5-upload-row {
+  display: flex;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.md5-upload-row .upload-box {
+  flex: 1;
+  min-width: 0;
+}
+
+@media (max-width: 480px) {
+  .md5-upload-row { flex-direction: column; }
+}
 
 /* MD5 工具：多文件列表 */
 .md5-hash-list {
@@ -2356,26 +2393,6 @@ html.dark .restore-cover-body {
 }
 
 
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 44px;
-  height: 44px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  background: rgba(255, 255, 255, 0.14);
-  -webkit-backdrop-filter: blur(12px);
-  backdrop-filter: blur(12px);
-  color: #FFFFFF;
-  cursor: pointer;
-  z-index: 3;
-  transition: background-color .16s ease, transform .16s ease, opacity .16s ease;
-}
-
-
 
 .modal-hint {
   display: flex;
@@ -2481,3 +2498,11 @@ html.dark .restore-cover-body {
   padding-top: 10px;
   margin-bottom: 0 !important;
 }
+/* 光棱制作：三个开关横排一行 */
+.pe-toggles-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  margin-top: 10px;
+}
+.pe-toggles-row .meta-toggle { margin: 0; }
