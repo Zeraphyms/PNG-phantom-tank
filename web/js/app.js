@@ -5887,7 +5887,7 @@ let pdRaf = 0;
 boxPd.addEventListener("click", () => inputPd.click());
 enableDropUpload(boxPd, inputPd);
 
-function pdSyncSliders(changed, quick) {
+function pdSyncSliders(changed) {
     let lo = parseInt(pdLow.value, 10), hi = parseInt(pdHigh.value, 10);
     if (lo >= hi) {
         if (changed === "low") hi = lo + 1; else lo = Math.max(0, hi - 1);
@@ -5897,12 +5897,12 @@ function pdSyncSliders(changed, quick) {
     document.getElementById("pd-num-high").value = pdHigh.value;
     document.getElementById("pd-num-contrast").value = pdContrast.value;
     document.getElementById("pd-num-iterations").value = pdIterSlider.value;
-    schedulePdRender(quick);
+    schedulePdRender();
 }
-pdLow.addEventListener("input", () => pdSyncSliders("low", true));
-pdHigh.addEventListener("input", () => pdSyncSliders("high", true));
-pdContrast.addEventListener("input", () => pdSyncSliders("contrast", true));
-pdIterSlider.addEventListener("input", () => pdSyncSliders("iterations", true));
+pdLow.addEventListener("input", () => pdSyncSliders("low"));
+pdHigh.addEventListener("input", () => pdSyncSliders("high"));
+pdContrast.addEventListener("input", () => pdSyncSliders("contrast"));
+pdIterSlider.addEventListener("input", () => pdSyncSliders("iterations"));
 document.getElementById("pd-reset-contrast").addEventListener("click", () => { pdContrast.value = "0"; pdSyncSliders("contrast"); });
 // 手动数值输入框 ↔ 滑条双向绑定
 function pdBindNum(numId, sliderId) {
@@ -5913,7 +5913,7 @@ function pdBindNum(numId, sliderId) {
         if (isNaN(v)) return;
         v = Math.max(parseInt(num.min, 10), Math.min(parseInt(num.max, 10), v));
         slider.value = String(v);
-        pdSyncSliders(sliderId === "pd-slider-low" ? "low" : sliderId === "pd-slider-high" ? "high" : sliderId === "pd-slider-contrast" ? "contrast" : "iterations", true);
+        pdSyncSliders(sliderId === "pd-slider-low" ? "low" : sliderId === "pd-slider-high" ? "high" : sliderId === "pd-slider-contrast" ? "contrast" : "iterations");
     });
 }
 pdBindNum("pd-num-low", "pd-slider-low");
@@ -5950,6 +5950,260 @@ document.querySelectorAll("#pd-method-group .segmented-btn").forEach(btn => {
     return { lower: 0, higher: 24, peak: 0 };
 }
 
+// ===== 8.9c 光棱解码 WebGL2 加速（照 Mirage_Decode webgl/decode.ts + helper.ts 移植） =====
+// 离屏 WebGL2 canvas：scaleFS（阈值窗口一遍）+ fillFS（24邻扩散，每轮一个 pass，ping-pong 纹理）。
+// 常驻缓存 VAO/纹理/FBO；WebGL2 不可用 → pdGlFallback = true 回退 CPU 队列版。
+const PD_GLSL_VS = `#version 300 es
+layout(location = 0) in vec2 a_position;
+layout(location = 1) in vec2 a_texCoord;
+out vec2 v_texCoord;
+void main() {
+  gl_Position = vec4(a_position, 0.0, 1.0);
+  v_texCoord = vec2(a_texCoord.x, a_texCoord.y);
+}`;
+const PD_GLSL_SCALE = `#version 300 es
+precision highp float;
+in vec2 v_texCoord;
+layout(location = 0) out vec4 outColor;
+layout(location = 1) out vec4 outMask;
+uniform sampler2D u_texture;
+uniform int u_fillMethod; // 0: black, 1: white, 2: transparent, 3: ltavg(暂黑)
+uniform float u_scaleRatio;
+uniform float u_lowerThreshold;
+uniform float u_higherThreshold;
+void main() {
+  vec4 color = texture(u_texture, v_texCoord);
+  float l = color.r * 0.299 + color.g * 0.587 + color.b * 0.114;
+  if (l < u_lowerThreshold || l > u_higherThreshold) {
+    outMask = vec4(1.0, 0.0, 0.0, 1.0);
+    if (u_fillMethod == 2) {
+      outColor = vec4(0.0, 0.0, 0.0, 0.0);
+    } else if (u_fillMethod == 1) {
+      outColor = vec4(1.0);
+    } else {
+      outColor = vec4(0.0);
+    }
+  } else {
+    outColor = vec4(
+      clamp((color.r - u_lowerThreshold) * u_scaleRatio, 0.0, 1.0),
+      clamp((color.g - u_lowerThreshold) * u_scaleRatio, 0.0, 1.0),
+      clamp((color.b - u_lowerThreshold) * u_scaleRatio, 0.0, 1.0),
+      color.a
+    );
+    outMask = vec4(0.0);
+  }
+}`;
+const PD_GLSL_FILL = `#version 300 es
+precision highp float;
+in vec2 v_texCoord;
+uniform sampler2D u_image;
+uniform sampler2D u_mask;
+uniform vec2 u_texelSize;
+layout(location = 0) out vec4 outColor;
+layout(location = 1) out vec4 outMask;
+void main() {
+  vec4 current = texture(u_image, v_texCoord);
+  vec4 mask = texture(u_mask, v_texCoord);
+  if (mask.r < 0.5) {
+    outColor = current;
+    outMask = vec4(0.0);
+    return;
+  }
+  vec4 sum = vec4(0.0);
+  float weightSum = 0.0;
+  vec2 offsets[24] = vec2[](
+    vec2(-1.0, 0.0), vec2(1.0, 0.0),
+    vec2(0.0, -1.0), vec2(0.0, 1.0),
+    vec2(-1.0, -1.0), vec2(1.0, 1.0),
+    vec2(-1.0, 1.0), vec2(1.0, -1.0),
+    vec2(-2.0, 0.0), vec2(2.0, 0.0),
+    vec2(0.0, -2.0), vec2(0.0, 2.0),
+    vec2(-2.0, -2.0), vec2(2.0, 2.0),
+    vec2(-2.0, 2.0), vec2(2.0, -2.0),
+    vec2(-1.0, -2.0), vec2(1.0, 2.0),
+    vec2(-2.0, -1.0), vec2(2.0, 1.0),
+    vec2(-1.0, 2.0), vec2(1.0, -2.0),
+    vec2(-2.0, 1.0), vec2(2.0, -1.0)
+  );
+  float weights[24] = float[](
+    0.6065, 0.6065, 0.6065, 0.6065,
+    0.3679, 0.3679, 0.3679, 0.3679,
+    0.1353, 0.1353, 0.1353, 0.1353,
+    0.0183, 0.0183, 0.0183, 0.0183,
+    0.0821, 0.0821, 0.0821, 0.0821,
+    0.0821, 0.0821, 0.0821, 0.0821
+  );
+  for (int i = 0; i < 24; i++) {
+    vec2 uv = v_texCoord + offsets[i] * u_texelSize;
+    vec4 neighbor = texture(u_image, uv);
+    vec4 neighborMask = texture(u_mask, uv);
+    if (neighborMask.r < 0.5) {
+      sum += neighbor * weights[i];
+      weightSum += weights[i];
+    }
+  }
+  if (weightSum > 0.0) {
+    outColor = sum / weightSum;
+    outMask = vec4(0.0);
+  } else {
+    outColor = current;
+    outMask = mask;
+  }
+}`;
+const pdGl = { gl: null, canvas: null, scaleProgram: null, fillProgram: null, vao: null,
+    texA: null, texB: null, maskA: null, maskB: null, fb: null, cacheW: 0, cacheH: 0, fallback: false };
+
+function pdGlCreateShader(type, src) {
+    const gl = pdGl.gl;
+    const sh = gl.createShader(type);
+    gl.shaderSource(sh, src);
+    gl.compileShader(sh);
+    if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+        throw new Error(gl.getShaderInfoLog(sh) || "shader compile failed");
+    }
+    return sh;
+}
+
+function pdGlCreateProgram(vsSrc, fsSrc) {
+    const gl = pdGl.gl;
+    const vs = pdGlCreateShader(gl.VERTEX_SHADER, vsSrc);
+    const fs = pdGlCreateShader(gl.FRAGMENT_SHADER, fsSrc);
+    const prog = gl.createProgram();
+    gl.attachShader(prog, vs);
+    gl.attachShader(prog, fs);
+    gl.linkProgram(prog);
+    gl.detachShader(prog, vs); gl.detachShader(prog, fs);
+    gl.deleteShader(vs); gl.deleteShader(fs);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+        throw new Error(gl.getProgramInfoLog(prog) || "program link failed");
+    }
+    return prog;
+}
+
+function pdGlInit(w, h) {
+    if (pdGl.gl && pdGl.cacheW === w && pdGl.cacheH === h) return true;   // 已就绪且尺寸一致
+    if (pdGl.fallback) return false;
+    try {
+        if (!pdGl.gl) {
+            pdGl.canvas = document.createElement("canvas");
+            const gl = pdGl.canvas.getContext("webgl2", { antialias: false });
+            if (!gl) throw new Error("WebGL2 not available");
+            pdGl.gl = gl;
+            // VAO（全屏四边形 2 三角）
+            pdGl.vao = gl.createVertexArray();
+            gl.bindVertexArray(pdGl.vao);
+            const buf = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+                -1, -1, 0, 0, 1, -1, 1, 0, -1, 1, 0, 1, -1, 1, 0, 1, 1, -1, 1, 0, 1, 1, 1, 1
+            ]), gl.STATIC_DRAW);
+            gl.enableVertexAttribArray(0);
+            gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 16, 0);
+            gl.enableVertexAttribArray(1);
+            gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 16, 8);
+            pdGl.scaleProgram = pdGlCreateProgram(PD_GLSL_VS, PD_GLSL_SCALE);
+            pdGl.fillProgram = pdGlCreateProgram(PD_GLSL_VS, PD_GLSL_FILL);
+            pdGl.fb = gl.createFramebuffer();
+        }
+        // 尺寸变化时重建纹理
+        if (pdGl.cacheW !== w || pdGl.cacheH !== h) {
+            const gl = pdGl.gl;
+            for (const t of [pdGl.texA, pdGl.texB, pdGl.maskA, pdGl.maskB]) if (t) gl.deleteTexture(t);
+            const mkTex = (internalFormat) => {
+                const t = gl.createTexture();
+                gl.bindTexture(gl.TEXTURE_2D, t);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+                gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+                return t;
+            };
+            pdGl.texA = mkTex(gl.RGBA8);
+            pdGl.texB = mkTex(gl.RGBA8);
+            // mask 用 RGBA8 而非 R8：部分驱动下 R8 挂 COLOR_ATTACHMENT 会 FRAMEBUFFER_INCOMPLETE_ATTACHMENT
+            pdGl.maskA = mkTex(gl.RGBA8);
+            pdGl.maskB = mkTex(gl.RGBA8);
+            pdGl.cacheW = w; pdGl.cacheH = h;
+        }
+        return true;
+    } catch (err) {
+        pdGl.fallback = true;
+        return false;
+    }
+}
+
+function pdGlDraw(program, uniforms) {
+    const gl = pdGl.gl;
+    gl.useProgram(program);
+    gl.bindVertexArray(pdGl.vao);
+    for (const [name, u] of Object.entries(uniforms)) {
+        const loc = gl.getUniformLocation(program, name);
+        if (loc === null) continue;
+        if (u.t === "i") gl.uniform1i(loc, u.v);
+        else if (u.t === "f") gl.uniform1f(loc, u.v);
+        else if (u.t === "v2") gl.uniform2fv(loc, u.v);
+    }
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+}
+
+// GPU 解码主入口：成功返回 ImageData，失败/不支持返回 null（调用方回退 CPU）
+function pdGlDecode(srcData, w, h, low, high, contrast, method, iterations) {
+    if (!pdGlInit(w, h)) return null;
+    const gl = pdGl.gl;
+    // 上传源纹理（带内容缓存：导入后源不变，只有 mask 参数变——src 纹理可复用）
+    const srcTex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, srcTex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, srcData);
+    gl.viewport(0, 0, w, h);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, pdGl.fb);
+    // pass 1: scale（窗口拉伸+填充标记）
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, pdGl.texA, 0);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT1, gl.TEXTURE_2D, pdGl.maskA, 0);
+    gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, srcTex);
+    const fillMethod = method === "white" ? 1 : method === "transparent" ? 2 : 0;
+    pdGlDraw(pdGl.scaleProgram, {
+        u_texture: { v: 0, t: "i" },
+        u_scaleRatio: { v: high === low ? 0 : 255 / (high - low), t: "f" },
+        u_lowerThreshold: { v: low / 255, t: "f" },
+        u_higherThreshold: { v: high / 255, t: "f" },
+        u_fillMethod: { v: fillMethod, t: "i" }
+    });
+    // pass 2..N: fill 迭代扩散（ping-pong）
+    if (method === "ltavg" && iterations > 0) {
+        let srcColor = pdGl.texA, dstColor = pdGl.texB, srcMask = pdGl.maskA, dstMask = pdGl.maskB;
+        const texel = [1 / w, 1 / h];
+        for (let iter = 0; iter < iterations; iter++) {
+            gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, dstColor, 0);
+            gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT1, gl.TEXTURE_2D, dstMask, 0);
+            gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);
+            gl.activeTexture(gl.TEXTURE0);
+            gl.bindTexture(gl.TEXTURE_2D, srcColor);
+            gl.activeTexture(gl.TEXTURE1);
+            gl.bindTexture(gl.TEXTURE_2D, srcMask);
+            pdGlDraw(pdGl.fillProgram, {
+                u_image: { v: 0, t: "i" },
+                u_mask: { v: 1, t: "i" },
+                u_texelSize: { v: texel, t: "v2" }
+            });
+            let tc = srcColor; srcColor = dstColor; dstColor = tc;
+            let tm = srcMask; srcMask = dstMask; dstMask = tm;
+        }
+    }
+    // 回读
+    gl.readBuffer(gl.COLOR_ATTACHMENT0);
+    const out = new ImageData(w, h);
+    gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, out.data);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.deleteTexture(srcTex);
+    return out;
+}
 // ---- 核心解码（单遍：窗口内真彩拉伸，窗口外标记待填充）----
 function pdDecodePass(srcData, out, w, h, low, high, contrast, isFill) {
     const ratio = 255 / (high - low);
@@ -6018,28 +6272,37 @@ function pdDiffuse(out, isFill, w, h, iterations) {
 }
 
 // ---- 实时渲染（rAF 合帧）----
-function renderPd(quick) {
+function renderPd() {
     if (!pdCanvas) return;
     const w = pdCanvas.width, h = pdCanvas.height;
     if (!pdSrcCache) {
         pdSrcCache = pdCanvas.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, w, h);
     }
     const srcData = pdSrcCache;
-    const out = new ImageData(w, h);
     const low = parseInt(pdLow.value, 10), high = parseInt(pdHigh.value, 10);
     const contrast = parseInt(pdContrast.value, 10);
-    const iterations = quick ? 0 : parseInt(pdIterSlider.value, 10);
-    const isFill = new Uint8Array(w * h);
-    pdDecodePass(srcData.data, out, w, h, low, high, contrast, isFill);
-    if (pdMethod === "ltavg" && !quick) pdDiffuse(out, isFill, w, h, iterations);
-    if (quick && pdMethod === "ltavg") {
-        // 快速模式 + 临近均值：窗口外暂填透明（扩散还没跑，完整渲染会覆盖成扩散色），
-        // 页面底色是浅色，透明显示为白，比黑色占位柔和。
-        for (let p = 0; p < isFill.length; p++) {
-            if (!isFill[p]) continue;
-            out.data[p * 4] = 0; out.data[p * 4 + 1] = 0; out.data[p * 4 + 2] = 0; out.data[p * 4 + 3] = 0;
+    const iterations = parseInt(pdIterSlider.value, 10);
+    // 全部渲染走 GPU（与原版一致：参数任何变化都直接完整渲染，GPU 毫秒级 + rAF 合帧 = 拖动实时）。
+    // GPU 不可用才回退 CPU 队列版（pdGl.fallback）。
+    if (!pdGl.fallback) {
+        const gpuOut = pdGlDecode(srcData.data, w, h, low, high, contrast, pdMethod, iterations);
+        if (gpuOut) {
+            const cvG = document.getElementById("canvas-pd-out");
+            cvG.width = w; cvG.height = h;
+            cvG.getContext("2d").putImageData(gpuOut, 0, 0);
+            cvG.hidden = false;
+            document.getElementById("card-pd-result").style.display = "block";
+            document.getElementById("txt-pd-summary").textContent =
+                `窗口 [${low}, ${high}] | 对比度 ${contrast} | 迭代 ${pdMethod === "ltavg" ? iterations : "—"} | ${w}x${h}`;
+            pdRendered = true;
+            return;
         }
     }
+    // CPU 回退（WebGL2 不可用）
+    const out = new ImageData(w, h);
+    const isFill = new Uint8Array(w * h);
+    pdDecodePass(srcData.data, out, w, h, low, high, contrast, isFill);
+    if (pdMethod === "ltavg") pdDiffuse(out, isFill, w, h, iterations);
     const cv = document.getElementById("canvas-pd-out");
     cv.width = w; cv.height = h;
     cv.getContext("2d").putImageData(out, 0, 0);
@@ -6051,18 +6314,9 @@ function renderPd(quick) {
 }
 
 let pdRafGuard = 0;
-let pdFullTimer = 0;
-function schedulePdRender(quick) {
+function schedulePdRender() {
     if (pdRaf) return;
-    pdRaf = requestAnimationFrame(() => { pdRaf = 0; renderPd(quick); });
-    // 快速渲染后安排一次完整渲染（含扩散）：350ms 无新操作即执行。
-    // 不依赖 change 事件——程序赋值/数字框输入不会触发滑条 change，会漏掉完整渲染。
-    if (quick) {
-        clearTimeout(pdFullTimer);
-        pdFullTimer = setTimeout(() => { if (pdCanvas) renderPd(false); }, 350);
-    } else {
-        clearTimeout(pdFullTimer);
-    }
+    pdRaf = requestAnimationFrame(() => { pdRaf = 0; renderPd(); });
 }
 
 
