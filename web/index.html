@@ -13,7 +13,7 @@
       document.documentElement.classList.toggle("dark", !!dark);
     })();
   </script>
-  <link rel="stylesheet" href="css/style.css?v=1.5.9.0">
+  <link rel="stylesheet" href="css/style.css?v=1.6.0.0">
 </head>
 <body>
 
@@ -26,7 +26,7 @@
       </button>
       <div class="app-head-center">
         <div class="app-title">APNG 伪装工具</div>
-        <div class="app-badge">Web v1.5.9</div>
+        <div class="app-badge">Web v1.6.0</div>
       </div>
       <div class="app-header-actions">
         <button id="btn-header-home" class="icon-btn" aria-label="回到主页" title="回到主页" hidden>
@@ -63,6 +63,10 @@
       <span class="menu-item-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="18" rx="1.5"/><rect x="14" y="3" width="7" height="18" rx="1.5"/></svg></span>
       <span class="menu-item-text"><strong>图片处理</strong><em>拼接 / 网格 / 九宫格切图 / 覆盖 / 证件照</em></span>
     </button>
+    <button class="menu-item" data-tab="page-classic">
+      <span class="menu-item-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none"/></svg></span>
+      <span class="menu-item-text"><strong>经典幻影</strong><em>黑白幻影 / 光棱解码 / 多图阈值编码</em></span>
+    </button>
     <button class="menu-item" data-tab="page-md5">
       <span class="menu-item-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3v6h6"/><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M9 13h6M9 17h6"/></svg></span>
       <span class="menu-item-text"><strong>图片工具</strong><em>MD5 增改 / 图片压缩 / 格式转换</em></span>
@@ -88,6 +92,10 @@
         <button class="segmented-btn" data-sub="md5hash">MD5 哈希</button>
         <button class="segmented-btn" data-sub="imgcompress">图片压缩</button>
         <button class="segmented-btn" data-sub="imgconvert">格式转换</button>
+        <button class="segmented-btn" data-clsub="mirage">经典幻影</button>
+        <button class="segmented-btn" data-clsub="encode">光棱制作</button>
+        <button class="segmented-btn" data-clsub="decode">光棱解码</button>
+        <button class="segmented-btn" data-clsub="advanced">高级编码</button>
       </div>
     </div>
   </div>
@@ -755,7 +763,7 @@
           <div class="ew-slider-row">
             <span class="ew-slider-label">裁切</span>
             <div class="merge-bg-row">
-              <div class="segmented merge-radius-mode" id="gm-fit-group" role="group" aria-label="填充方式" style="transform-origin: left center;">
+              <div class="segmented merge-radius-mode" id="gm-fit-group" role="group" aria-label="填充方式">
                 <button class="segmented-btn active" data-fit="cover">填满裁切</button>
                 <button class="segmented-btn" data-fit="contain">完整留白</button>
               </div>
@@ -950,7 +958,7 @@
             </div>
             <div class="ew-slider-row">
               <span class="ew-slider-label">样式</span>
-              <div class="segmented merge-radius-mode" id="ov-text-weight-group" role="group" aria-label="字重" style="transform-origin: left center;">
+              <div class="segmented merge-radius-mode" id="ov-text-weight-group" role="group" aria-label="字重">
                 <button class="segmented-btn" data-weight="normal">细</button>
                 <button class="segmented-btn active" data-weight="bold">粗</button>
               </div>
@@ -1187,7 +1195,7 @@
           <div class="card-title"><span class="step-badge">2</span><span class="title-text">转换设置</span></div>
           <div class="ew-slider-row">
             <span class="ew-slider-label">目标</span>
-            <div class="segmented merge-radius-mode" id="cv-format-group" role="group" aria-label="目标格式" style="transform-origin: left center;">
+            <div class="segmented merge-radius-mode" id="cv-format-group" role="group" aria-label="目标格式">
               <button class="segmented-btn" data-fmt="png">PNG</button>
               <button class="segmented-btn active" data-fmt="jpeg">JPG</button>
               <button class="segmented-btn" data-fmt="webp">WEBP</button>
@@ -1217,6 +1225,259 @@
           <div id="cv-result-list" class="cp-result-list"></div>
           <div class="action-row" style="margin-top: 12px;">
             <button id="btn-cv-download" class="btn-primary-large" style="margin-top: 0;">💾 一键保存全部</button>
+          </div>
+        </div>
+      </div>
+    </section>
+    <!-- PAGE 12: 经典幻影（黑白幻影坦克） -->
+    <section id="page-classic" class="tab-page">
+      <div id="panel-cl-mirage" class="merge-sub-panel">
+      <div class="card">
+        <div class="card-title"><span class="step-badge">1</span><span class="title-text">选择里图与表图</span></div>
+        <div class="card-desc">里图 = 深色背景显示的图，表图 = 浅色背景显示的图；两图会按比例混合成一张灰度图。点击或拖拽均可。</div>
+        <div class="md5-upload-row">
+          <div class="upload-box" id="box-cl-inner">
+            <input type="file" id="input-cl-inner" accept="image/*" style="display: none;">
+            <div class="upload-icon">🌑</div>
+            <div class="upload-text">选择里图</div>
+            <div class="upload-hint">深色背景显示</div>
+            <img id="img-cl-inner" class="file-preview-img" alt="里图预览">
+          </div>
+          <div class="upload-box" id="box-cl-cover">
+            <input type="file" id="input-cl-cover" accept="image/*" style="display: none;">
+            <div class="upload-icon">🌕</div>
+            <div class="upload-text">选择表图</div>
+            <div class="upload-hint">浅色背景显示</div>
+            <img id="img-cl-cover" class="file-preview-img" alt="表图预览">
+          </div>
+        </div>
+        <div id="badge-cl-info" class="file-info-badge"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><span class="step-badge">2</span><span class="title-text">生成设置</span></div>
+        <div class="ew-slider-row">
+          <span class="ew-slider-label">长边</span>
+          <input type="range" id="cl-slider-size" class="ew-slider" min="256" max="2560" step="32" value="1280">
+          <span class="ew-slider-val" id="cl-val-size">1280</span>
+        </div>
+        <div class="ew-slider-row">
+          <span class="ew-slider-label">里图占比</span>
+          <input type="range" id="cl-slider-inner" class="ew-slider" min="0.2" max="0.8" step="0.01" value="0.5">
+          <span class="ew-slider-val" id="cl-val-inner">50%</span>
+        </div>
+        <div class="ew-slider-row">
+          <span class="ew-slider-label">表图占比</span>
+          <input type="range" id="cl-slider-cover" class="ew-slider" min="0.2" max="0.8" step="0.01" value="0.5">
+          <span class="ew-slider-val" id="cl-val-cover">50%</span>
+        </div>
+        <div class="card-desc" style="margin-top: 8px;">占比决定两图的显隐强度（原版默认各 50%）；输出为灰度 PNG，混合方式与真实黑白幻影坦克一致</div>
+        <div class="action-row" style="margin-top: 12px;">
+          <button id="btn-cl-run" class="btn-primary-large" style="margin-top: 0;">🌗 生成经典幻影</button>
+        </div>
+      </div>
+
+      <div class="card" id="card-cl-result" style="display: none;">
+        <div class="card-title">🌗 生成完成</div>
+        <div class="card-desc" id="txt-cl-summary"></div>
+        <div class="merge-preview-frame">
+          <canvas id="canvas-cl-out" class="merge-preview-canvas" hidden></canvas>
+        </div>
+        <div class="card-desc" style="margin-top: 8px;">验证方法：把成品图分别放到深色 / 浅色背景（或 QQ 气泡与点开大图）查看</div>
+        <div class="action-row" style="margin-top: 12px;">
+          <button id="btn-cl-download" class="btn-primary-large" style="margin-top: 0;">💾 保存成品图</button>
+        </div>
+      </div>
+      </div>
+
+      <!-- 子面板 2: 光棱制作（Prism Encode，里表双图阈值棋盘混合） -->
+      <div id="panel-cl-encode" class="merge-sub-panel" hidden>
+        <div class="card">
+          <div class="card-title"><span class="step-badge">1</span><span class="title-text">选择里图与表图</span></div>
+          <div class="card-desc">里图在深色背景显示、表图在浅色背景显示；两图按棋盘遮罩逐像素混合，阈值决定各自亮度压缩。</div>
+          <div class="md5-upload-row">
+            <div class="upload-box" id="box-pe-inner">
+              <input type="file" id="input-pe-inner" accept="image/*" style="display: none;">
+              <div class="upload-icon">🌑</div>
+              <div class="upload-text">选择里图</div>
+              <img id="img-pe-inner" class="file-preview-img" alt="里图预览">
+            </div>
+            <div class="upload-box" id="box-pe-cover">
+              <input type="file" id="input-pe-cover" accept="image/*" style="display: none;">
+              <div class="upload-icon">🌕</div>
+              <div class="upload-text">选择表图</div>
+              <img id="img-pe-cover" class="file-preview-img" alt="表图预览">
+            </div>
+          </div>
+          <div id="badge-pe-info" class="file-info-badge"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span class="step-badge">2</span><span class="title-text">编码设置</span></div>
+          <div class="ew-slider-row">
+            <span class="ew-slider-label">里阈值</span>
+            <input type="range" id="pe-slider-inner" class="ew-slider" min="1" max="255" step="1" value="24">
+            <span class="ew-slider-val" id="pe-val-inner">24</span>
+          </div>
+          <div class="ew-slider-row">
+            <span class="ew-slider-label">表阈值</span>
+            <input type="range" id="pe-slider-cover" class="ew-slider" min="1" max="255" step="1" value="42">
+            <span class="ew-slider-val" id="pe-val-cover">42</span>
+          </div>
+          <div class="ew-slider-row">
+            <span class="ew-slider-label">最大长或宽</span>
+            <input type="number" id="pe-num-maxsize" class="ew-num" min="10" max="9999" step="1" value="9999">
+          </div>
+          <div class="card-desc" style="margin-top: 4px;">里图最长边超过该值时等比缩小（表图随里图尺寸居中裁剪）；默认 9999 不限制。</div>
+          <div class="ew-slider-row">
+            <span class="ew-slider-label">混合模式</span>
+            <div class="segmented merge-radius-mode" id="pe-blend-group" role="group" aria-label="混合模式">
+              <button class="segmented-btn" data-slope="0" data-gap="1" data-row="1">横条</button>
+              <button class="segmented-btn" data-slope="0" data-gap="1" data-row="0">竖条</button>
+              <button class="segmented-btn active" data-slope="-1" data-gap="1" data-row="0">斜纹</button>
+            </div>
+          </div>
+          <div class="ew-slider-row">
+            <span class="ew-slider-label">间隔</span>
+            <input type="range" id="pe-slider-gap" class="ew-slider" min="1" max="10" step="1" value="1">
+            <span class="ew-slider-val" id="pe-val-gap">1</span>
+          </div>
+          <div class="pe-toggles-row">
+            <label class="meta-toggle"><input type="checkbox" id="chk-pe-inner-gray"><span class="meta-toggle-text">里图转灰度</span></label>
+            <label class="meta-toggle"><input type="checkbox" id="chk-pe-cover-gray"><span class="meta-toggle-text">表图转灰度</span></label>
+            <label class="meta-toggle"><input type="checkbox" id="chk-pe-reverse"><span class="meta-toggle-text">反向亮度映射</span></label>
+          </div>
+          <div class="action-row" style="margin-top: 12px;">
+            <button id="btn-pe-run" class="btn-primary-large" style="margin-top: 0;">🌗 生成</button>
+          </div>
+        </div>
+
+        <div class="card" id="card-pe-result" style="display: none;">
+          <div class="card-title">🌗 生成完成</div>
+          <div class="card-desc" id="txt-pe-summary"></div>
+          <div class="merge-preview-frame">
+            <canvas id="canvas-pe-out" class="merge-preview-canvas" hidden></canvas>
+          </div>
+          <div class="action-row" style="margin-top: 12px;">
+            <button id="btn-pe-download" class="btn-primary-large" style="margin-top: 0;">💾 保存成品图</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 子面板 3: 光棱解码（Prism Decode） -->
+      <div id="panel-cl-decode" class="merge-sub-panel" hidden>
+        <div class="card">
+          <div class="card-title"><span class="step-badge">1</span><span class="title-text">选择幻影图</span></div>
+          <div class="card-desc">把别人发的幻影坦克图按灰度窗口扫描出隐藏内容。支持 JPG / PNG，点击或拖拽。</div>
+          <div class="upload-box" id="box-pd-upload">
+            <input type="file" id="input-pd-upload" accept="image/*" style="display: none;">
+            <div class="upload-icon">🔍</div>
+            <div class="upload-text">点击或拖拽幻影图到这里</div>
+            <div class="upload-hint">解码全程在本地浏览器完成</div>
+            <img id="img-pd-preview" class="file-preview-img" alt="幻影图预览">
+          </div>
+          <div id="badge-pd-info" class="file-info-badge"></div>
+        </div>
+
+        <div class="card" id="card-pd-result" style="display: none;">
+          <div class="card-title">🔍 解码完成</div>
+          <div class="card-desc" id="txt-pd-summary"></div>
+          <div class="merge-preview-frame">
+            <canvas id="canvas-pd-out" class="merge-preview-canvas" hidden></canvas>
+          </div>
+          <div class="action-row" style="margin-top: 12px;">
+            <button id="btn-pd-download" class="btn-primary-large" style="margin-top: 0;">💾 保存显示图像</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span class="step-badge">2</span><span class="title-text">阈值调整 <span style="color: var(--text-faint); font-weight: 400;">（实时渲染）</span></span></div>
+          <div class="ew-slider-row">
+            <span class="ew-slider-label">下限</span>
+            <input type="range" id="pd-slider-low" class="ew-slider" min="0" max="255" step="1" value="0">
+            <input type="number" id="pd-num-low" class="ew-num" min="0" max="255" step="1" value="0">
+          </div>
+          <div class="ew-slider-row">
+            <span class="ew-slider-label">上限</span>
+            <input type="range" id="pd-slider-high" class="ew-slider" min="0" max="255" step="1" value="24">
+            <input type="number" id="pd-num-high" class="ew-num" min="0" max="255" step="1" value="24">
+          </div>
+          <div class="card-desc">灰度在 [下限, 上限] 窗口内的像素还原为真彩并拉伸对比度；窗口外像素进入扩散填充。拉动滑条实时渲染。</div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span class="step-badge">3</span><span class="title-text">对比度调整</span></div>
+          <div class="ew-slider-row">
+            <span class="ew-slider-label">对比度</span>
+            <input type="range" id="pd-slider-contrast" class="ew-slider" min="0" max="100" step="5" value="0">
+            <input type="number" id="pd-num-contrast" class="ew-num" min="0" max="100" step="1" value="0">
+            <button id="pd-reset-contrast" class="gm-reset-btn" type="button">重置对比度</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span class="step-badge">4</span><span class="title-text">其他像素处理方式</span></div>
+          <div class="ew-slider-row">
+            <span class="ew-slider-label">方式</span>
+            <div class="segmented merge-radius-mode" id="pd-method-group" role="group" aria-label="填充方式">
+              <button class="segmented-btn active" data-pdm="ltavg">临近均值</button>
+              <button class="segmented-btn" data-pdm="transparent">置为透明</button>
+              <button class="segmented-btn" data-pdm="black">置为黑色</button>
+              <button class="segmented-btn" data-pdm="white">置为白色</button>
+            </div>
+          </div>
+          <div class="ew-slider-row" id="row-pd-iterations">
+            <span class="ew-slider-label">扩散迭代</span>
+            <input type="range" id="pd-slider-iterations" class="ew-slider" min="1" max="100" step="1" value="16">
+            <input type="number" id="pd-num-iterations" class="ew-num" min="1" max="100" step="1" value="16">
+          </div>
+          <div class="card-desc" style="margin-top: 8px;">临近均值 = 每轮用已还原邻居的高斯加权均值向外扩散一圈；迭代越多扩散越远（大间隙需要 100 次）。</div>
+        </div>
+
+      </div>
+
+      <!-- 子面板 3: 高级编码（Prism Advanced Encode，多图阈值分区） -->
+      <div id="panel-cl-advanced" class="merge-sub-panel" hidden>
+        <div class="card">
+          <div class="card-title"><span class="step-badge">1</span><span class="title-text">输入图片</span></div>
+          <div class="card-desc">添加多张图片，每张分配一个灰度窗口（不同亮度区间显示不同图）。按 (x+y) 棋盘权重交替取样。</div>
+          <div id="adv-input-list"></div>
+          <div class="action-row" style="margin-top: 12px;">
+            <button id="btn-adv-add" class="btn-outline" style="flex: 1;">➕ 添加图片</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span class="step-badge">2</span><span class="title-text">编码设置</span></div>
+          <div class="ew-slider-row">
+            <span class="ew-slider-label">输出宽 × 高</span>
+            <input type="number" id="adv-num-width" class="ew-num" min="10" max="10000" step="1" value="1000">
+            <span class="ew-slider-label" style="min-width: auto;">×</span>
+            <input type="number" id="adv-num-height" class="ew-num" min="10" max="10000" step="1" value="1000">
+            <span class="ew-slider-label" style="min-width: auto;">px</span>
+          </div>
+          <label class="meta-toggle">
+            <input type="checkbox" id="chk-adv-lock-ratio" checked>
+            <span class="meta-toggle-text">锁定第一张图的宽高比（勾选后高度按比例自动计算，手动高度不生效）</span>
+          </label>
+          <div class="card-desc" style="margin-top: 8px;">每张图可单独调整灰度窗口（下限/上限）与权重；权重越大在棋盘交替中占比越多。窗口重叠会冲突，提示后可勾选忽略。</div>
+          <div class="action-row" style="margin-top: 12px;">
+            <button id="btn-adv-run" class="btn-primary-large" style="margin-top: 0;">🌈 生成多图幻影</button>
+          </div>
+          <label class="meta-toggle" style="margin-top: 10px;">
+            <input type="checkbox" id="chk-adv-conflict" checked>
+            <span class="meta-toggle-text">窗口冲突时警告（关闭则静默忽略）</span>
+          </label>
+        </div>
+
+        <div class="card" id="card-adv-result" style="display: none;">
+          <div class="card-title">🌈 生成完成</div>
+          <div class="card-desc" id="txt-adv-summary"></div>
+          <div class="merge-preview-frame">
+            <canvas id="canvas-adv-out" class="merge-preview-canvas" hidden></canvas>
+          </div>
+          <div class="action-row" style="margin-top: 12px;">
+            <button id="btn-adv-download" class="btn-primary-large" style="margin-top: 0;">💾 保存成品图</button>
           </div>
         </div>
       </div>
@@ -1286,7 +1547,7 @@
 <script src="js/MiniZlib.js"></script>
 <script src="js/default_cover.js"></script>
 <script src="js/ew_watermarks.js"></script>
-<script src="js/app.js?v=1.5.9.0"></script>
+<script src="js/app.js?v=1.6.0.0"></script>
 
 </body>
 </html>
