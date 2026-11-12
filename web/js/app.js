@@ -5888,11 +5888,8 @@ boxPd.addEventListener("click", () => inputPd.click());
 enableDropUpload(boxPd, inputPd);
 
 function pdSyncSliders(changed) {
-    let lo = parseInt(pdLow.value, 10), hi = parseInt(pdHigh.value, 10);
-    if (lo >= hi) {
-        if (changed === "low") hi = lo + 1; else lo = Math.max(0, hi - 1);
-        pdHigh.value = String(hi); pdLow.value = String(lo);
-    }
+    // 与原版一致：只做输入范围约束，不主动改动另一端的值——用户可先改下限再改上限。
+    // 下限 ≥ 上限时渲染按窗口无效处理（全图填充），滑条值保持用户所设。
     document.getElementById("pd-num-low").value = pdLow.value;
     document.getElementById("pd-num-high").value = pdHigh.value;
     document.getElementById("pd-num-contrast").value = pdContrast.value;
@@ -6170,7 +6167,7 @@ function pdGlDecode(srcData, w, h, low, high, contrast, method, iterations) {
     const fillMethod = method === "white" ? 1 : method === "transparent" ? 2 : 0;
     pdGlDraw(pdGl.scaleProgram, {
         u_texture: { v: 0, t: "i" },
-        u_scaleRatio: { v: high === low ? 0 : 255 / (high - low), t: "f" },
+        u_scaleRatio: { v: high <= low ? 0 : 255 / (high - low), t: "f" },
         u_lowerThreshold: { v: low / 255, t: "f" },
         u_higherThreshold: { v: high / 255, t: "f" },
         u_fillMethod: { v: fillMethod, t: "i" }
@@ -6206,6 +6203,17 @@ function pdGlDecode(srcData, w, h, low, high, contrast, method, iterations) {
 }
 // ---- 核心解码（单遍：窗口内真彩拉伸，窗口外标记待填充）----
 function pdDecodePass(srcData, out, w, h, low, high, contrast, isFill) {
+    // 窗口无效（下限≥上限）→ 与原版一致：全图像素按填充方式处理
+    if (high <= low) {
+        for (let i = 0, p = 0; i < srcData.length; i += 4, p++) {
+            isFill[p] = 1;
+            if (pdMethod === "black") { out.data[i] = 0; out.data[i + 1] = 0; out.data[i + 2] = 0; out.data[i + 3] = 255; }
+            else if (pdMethod === "white") { out.data[i] = 255; out.data[i + 1] = 255; out.data[i + 2] = 255; out.data[i + 3] = 255; }
+            else if (pdMethod === "transparent") { out.data[i] = 0; out.data[i + 1] = 0; out.data[i + 2] = 0; out.data[i + 3] = 0; }
+            else { out.data[i] = 0; out.data[i + 1] = 0; out.data[i + 2] = 0; out.data[i + 3] = 255; }
+        }
+        return;
+    }
     const ratio = 255 / (high - low);
     const scaleV = (v) => Math.max(Math.min(Math.round((v - low) * ratio), 255), 0);
     const contrastScale = contrast / 50;
