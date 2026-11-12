@@ -13,7 +13,7 @@
       document.documentElement.classList.toggle("dark", !!dark);
     })();
   </script>
-  <link rel="stylesheet" href="css/style.css?v=1.6.0.2">
+  <link rel="stylesheet" href="css/style.css?v=1.6.0.3">
 </head>
 <body>
 
@@ -1441,10 +1441,13 @@
         <div class="card">
           <div class="card-title"><span class="step-badge">1</span><span class="title-text">输入图片</span></div>
           <div class="card-desc">添加多张图片，每张分配一个灰度窗口（不同亮度区间显示不同图）。按 (x+y) 棋盘权重交替取样。</div>
-          <div id="adv-input-list"></div>
-          <div class="action-row" style="margin-top: 12px;">
-            <button id="btn-adv-add" class="btn-outline" style="flex: 1;">➕ 添加图片</button>
+          <div class="upload-box" id="adv-drop-box">
+            <input type="file" id="input-adv-files" accept="image/*" multiple style="display: none;">
+            <div class="upload-icon">🖼️</div>
+            <div class="upload-text">点击或拖拽图片到这里</div>
+            <div class="upload-hint">支持多选，每张图分配独立灰度窗口，已加载的会追加到下方列表</div>
           </div>
+          <div id="adv-input-list"></div>
         </div>
 
         <div class="card">
@@ -1547,7 +1550,7 @@
 <script src="js/MiniZlib.js"></script>
 <script src="js/default_cover.js"></script>
 <script src="js/ew_watermarks.js"></script>
-<script src="js/app.js?v=1.6.0.2"></script>
+<script src="js/app.js?v=1.6.0.3"></script>
 
 </body>
 </html>

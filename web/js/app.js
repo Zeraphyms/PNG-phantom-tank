@@ -6508,24 +6508,23 @@ inputPd.addEventListener("change", async (e) => {
         });
     }
 
-    document.getElementById("btn-adv-add").addEventListener("click", () => {
-        const inp = document.createElement("input");
-        inp.type = "file"; inp.accept = "image/*"; inp.multiple = true;
-        inp.addEventListener("change", async (e) => {
-            const files = Array.from(e.target.files || []);
-            e.target.value = "";
-            for (const file of files) {
-                try {
-                    const img = await loadImage(URL.createObjectURL(file));
-                    const last = advInputs[advInputs.length - 1];
-                    const lower = last ? Math.min(254, last.higher + 5) : 0;
-                    const higher = Math.min(255, lower + 24);
-                    advInputs.push({ file, name: file.name, img, lower, higher, weight: 1 });
-                } catch (err) { /* 跳过 */ }
-            }
-            renderAdvInputs();
-        });
-        inp.click();
+    const advDropBox = document.getElementById("adv-drop-box");
+    const advFileInput = document.getElementById("input-adv-files");
+    advDropBox.addEventListener("click", () => advFileInput.click());
+    enableDropUpload(advDropBox, advFileInput);
+    advFileInput.addEventListener("change", async (e) => {
+        const files = Array.from(e.target.files || []);
+        e.target.value = "";
+        for (const file of files) {
+            try {
+                const img = await loadImage(URL.createObjectURL(file));
+                const last = advInputs[advInputs.length - 1];
+                const lower = last ? Math.min(254, last.higher + 5) : 0;
+                const higher = Math.min(255, lower + 24);
+                advInputs.push({ file, name: file.name, img, lower, higher, weight: 1 });
+            } catch (err) { /* 跳过 */ }
+        }
+        renderAdvInputs();
     });
 
     document.getElementById("btn-adv-run").addEventListener("click", async () => {
