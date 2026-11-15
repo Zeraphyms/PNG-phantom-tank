@@ -13,7 +13,7 @@
       document.documentElement.classList.toggle("dark", !!dark);
     })();
   </script>
-  <link rel="stylesheet" href="css/style.css?v=1.6.0.4">
+  <link rel="stylesheet" href="css/style.css?v=1.6.0.12">
 </head>
 <body>
 
@@ -766,11 +766,24 @@
               <div class="segmented merge-radius-mode" id="gm-fit-group" role="group" aria-label="填充方式">
                 <button class="segmented-btn active" data-fit="cover">填满裁切</button>
                 <button class="segmented-btn" data-fit="contain">完整留白</button>
+                <button class="segmented-btn" data-fit="stretch">铺满拉伸</button>
               </div>
             </div>
           </div>
           <div class="card-desc" style="margin-top: 8px; font-size: 11.5px;">
             填满裁切：每格等大，图片放大裁掉超出部分（格子整齐）；完整留白：图片完整显示，在格内居中留空
+          </div>
+          <div class="gm-bulk-bar" id="gm-bulk-bar" hidden>
+            <span class="ew-slider-label" id="txt-gm-selcount">已选 0 张</span>
+            <select class="merge-file-fit" id="gm-bulk-fit">
+              <option value="follow">跟随全局</option>
+              <option value="cover">填满裁切</option>
+              <option value="contain">完整留白</option>
+              <option value="stretch">铺满拉伸</option>
+            </select>
+            <button id="btn-gm-select-all" class="btn-outline" style="flex: 0 0 auto; padding: 6px 14px;">全选</button>
+            <button id="btn-gm-bulk-apply" class="btn-outline" style="flex: 0 0 auto; padding: 6px 14px;">应用到选中</button>
+            <button id="btn-gm-clear-sel" class="btn-outline" style="flex: 0 0 auto; padding: 6px 14px;">取消选择</button>
           </div>
 
           <div class="ov-text-row" style="margin-top: 12px;">
@@ -1550,7 +1563,7 @@
 <script src="js/MiniZlib.js"></script>
 <script src="js/default_cover.js"></script>
 <script src="js/ew_watermarks.js"></script>
-<script src="js/app.js?v=1.6.0.4"></script>
+<script src="js/app.js?v=1.6.0.12"></script>
 
 </body>
 </html>

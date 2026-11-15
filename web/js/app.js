@@ -3259,7 +3259,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const inputGm = document.getElementById("input-gm-image");
     let gmFiles = [];            // [{ file, img, w, h }] 按填入顺序
     let gmBg = "#FFFFFF";
-    let gmFit = "cover";         // cover=填满裁切 contain=完整留白
+    let gmFit = "cover";         // cover=填满裁切 contain=完整留白 stretch=铺满拉伸（不裁切直接拉伸）
     let gmPreviewCanvas = document.getElementById("canvas-gm-out");
 
     boxGm.addEventListener("click", () => inputGm.click());
@@ -3661,6 +3661,7 @@ document.addEventListener("DOMContentLoaded", () => {
             row.addEventListener("dragleave", () => row.classList.remove("drag-over-top", "drag-over-bottom"));
             row.addEventListener("drop", (e) => {
                 e.preventDefault();
+                e.stopPropagation();
                 const rect = row.getBoundingClientRect();
                 const before = (e.clientY - rect.top) < rect.height / 2;
                 let dst = before ? i : i + 1;
@@ -3671,12 +3672,40 @@ document.addEventListener("DOMContentLoaded", () => {
                 renderGmList();
                 scheduleGmPreview();
             });
+            const handle = document.createElement("span");
+            handle.className = "merge-drag-handle";
+            handle.textContent = "⠿";
+            handle.title = "拖拽调整顺序";
             const order = document.createElement("span");
             order.className = "merge-file-order";
             order.textContent = String(i + 1);
             const name = document.createElement("span");
             name.className = "merge-file-name";
             name.textContent = `${item.file.name} (${item.w}x${item.h})`;
+            const updown = document.createElement("span");
+            updown.className = "merge-file-updown";
+            const upBtn = document.createElement("button");
+            upBtn.textContent = "▲";
+            upBtn.title = "上移";
+            upBtn.disabled = i === 0;
+            upBtn.addEventListener("click", () => {
+                if (i === 0) return;
+                [gmFiles[i - 1], gmFiles[i]] = [gmFiles[i], gmFiles[i - 1]];
+                renderGmList();
+                scheduleGmPreview();
+            });
+            const downBtn = document.createElement("button");
+            downBtn.textContent = "▼";
+            downBtn.title = "下移";
+            downBtn.disabled = i === gmFiles.length - 1;
+            downBtn.addEventListener("click", () => {
+                if (i === gmFiles.length - 1) return;
+                [gmFiles[i + 1], gmFiles[i]] = [gmFiles[i], gmFiles[i + 1]];
+                renderGmList();
+                scheduleGmPreview();
+            });
+            updown.appendChild(upBtn);
+            updown.appendChild(downBtn);
             const del = document.createElement("button");
             del.className = "merge-file-del";
             del.textContent = "✕";
@@ -3687,11 +3716,14 @@ document.addEventListener("DOMContentLoaded", () => {
                 refreshGmBadge();
                 scheduleGmPreview();
             });
+            row.appendChild(handle);
             row.appendChild(order);
             row.appendChild(name);
+            row.appendChild(updown);
             row.appendChild(del);
             listEl.appendChild(row);
         });
+        refreshGmBulkBar();
     }
 
     function refreshGmBadge() {
@@ -3720,6 +3752,64 @@ document.addEventListener("DOMContentLoaded", () => {
         boxGm.querySelector(".upload-text").style.display = "none";
         boxGm.querySelector(".upload-hint").style.display = "none";
     }
+
+    // ---- 点预览选图 + 批量裁切（就地显示在预览卡内）----
+    // 点击预览某格子 = 切换该图选中；选中格子由 buildGmCanvas 重绘时描高亮边。
+    // 选中数 > 0 时预览卡下方出现批量裁切行（就近操作，不用滑回列表）。
+    function refreshGmBulkBar() {
+        const bar = document.getElementById("gm-bulk-bar");
+        const n = gmFiles.filter(f => f._selected).length;
+        bar.hidden = n === 0;
+        document.getElementById("txt-gm-selcount").textContent = `已选 ${n} 张`;
+        document.getElementById("btn-gm-bulk-apply").disabled = n === 0;
+        const allSel = gmFiles.length > 0 && gmFiles.every(f => f._selected);
+        document.getElementById("btn-gm-select-all").textContent = allSel ? "全不选" : "全选";
+    }
+
+    function pdGmClearSelection() {
+        gmFiles.forEach(f => { f._selected = false; });
+        refreshGmBulkBar();
+        scheduleGmPreview();
+    }
+
+    document.getElementById("btn-gm-bulk-apply").addEventListener("click", () => {
+        const fit = document.getElementById("gm-bulk-fit").value;
+        let n = 0;
+        gmFiles.forEach(f => {
+            if (f._selected) { f.fitOverride = fit === "follow" ? null : fit; n++; }
+        });
+        if (n > 0) {
+            const label = { follow: "跟随全局", cover: "填满裁切", contain: "完整留白", stretch: "铺满拉伸" }[fit] || fit;
+            document.getElementById("badge-gm-info").textContent =
+                `已对 ${n} 张图应用「${label}」`;
+        }
+        pdGmClearSelection();
+    });
+
+    document.getElementById("btn-gm-clear-sel").addEventListener("click", () => pdGmClearSelection());
+
+    // 全选/全不选（切换）
+    document.getElementById("btn-gm-select-all").addEventListener("click", () => {
+        const all = gmFiles.length > 0 && gmFiles.every(f => f._selected);
+        gmFiles.forEach(f => { f._selected = !all; });
+        refreshGmBulkBar();
+        scheduleGmPreview();
+    });
+
+    // 点预览格子 = 切换该图选中（命中按格子矩形，坐标按画布显示比例换算）
+    document.getElementById("canvas-gm-out").addEventListener("click", (e) => {
+        if (!pdGmRects.length) return;
+        const rect = e.currentTarget.getBoundingClientRect();
+        const scaleW = e.currentTarget.width / rect.width;
+        const scaleH = e.currentTarget.height / rect.height;
+        const px = (e.clientX - rect.left) * scaleW;
+        const py = (e.clientY - rect.top) * scaleH;
+        const hit = pdGmRects.find(r => px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h);
+        if (!hit) return;
+        gmFiles[hit.idx]._selected = !gmFiles[hit.idx]._selected;
+        refreshGmBulkBar();
+        scheduleGmPreview();   // 重绘（含选中高亮）
+    });
 
     inputGm.addEventListener("change", async (e) => {
         const files = e.target.files ? Array.from(e.target.files) : [];
@@ -3763,12 +3853,14 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         const inner = { x: margin, y: margin, w: cw - margin * 2, h: ch - margin * 2 };
+        pdGmRects = [];   // 每图格子矩形（预览点击命中用）
         list.forEach((item, idx) => {
             const R = regions[idx];
             const bx = inner.x + R.x0 / gmECols * inner.w;
             const by = inner.y + R.y0 / gmERows * inner.h;
             const bw = (R.x1 - R.x0) / gmECols * inner.w;
             const bh = (R.y1 - R.y0) / gmERows * inner.h;
+            pdGmRects.push({ idx, x: bx, y: by, w: bw, h: bh, sel: !!item._selected });
             // 裁剪路径 = 区域内所有精细格（L 形按格拼形）；每格内缩 gap/2
             ctx.save();
             ctx.beginPath();
@@ -3782,8 +3874,12 @@ document.addEventListener("DOMContentLoaded", () => {
                 else ctx.rect(gx, gy, Math.max(1, gw), Math.max(1, gh));
             });
             ctx.clip();
-            // 图片按包围盒 cover/contain（L 形裁剪只显示区域内的部分）
-            if (gmFit === "cover") {
+            // 图片按包围盒填充：优先用该图自己的裁切覆盖（fitOverride），未设置则用全局 gmFit
+            // cover=填满裁切 contain=完整留白 stretch=铺满拉伸（无视比例直接拉伸到格子）
+            const fit = item.fitOverride || gmFit;
+            if (fit === "stretch") {
+                ctx.drawImage(item.img, bx, by, bw, bh);
+            } else if (fit === "cover") {
                 const k = Math.max(bw / item.w, bh / item.h);
                 const dw = item.w * k, dh = item.h * k;
                 ctx.drawImage(item.img, bx + (bw - dw) / 2, by + (bh - dh) / 2, dw, dh);
@@ -3793,6 +3889,14 @@ document.addEventListener("DOMContentLoaded", () => {
                 ctx.drawImage(item.img, bx + (bw - dw) / 2, by + (bh - dh) / 2, dw, dh);
             }
             ctx.restore();
+            // 选中格子：高亮描边（画在 clip 外层，避免被裁）
+            if (item._selected) {
+                ctx.save();
+                ctx.strokeStyle = "#4A9EFF";
+                ctx.lineWidth = Math.max(3, cw / 200);
+                ctx.strokeRect(bx + 2, by + 2, bw - 4, bh - 4);
+                ctx.restore();
+            }
         });
         return { canvas, cw, ch };
     }
@@ -3820,7 +3924,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 document.getElementById("card-gm-result").style.display = "block";
                 const layoutText = `${gmEditorLeaves().length} 图拼版`;
                 document.getElementById("txt-gm-summary").textContent =
-                    `${layoutText} | ${gmFit === "cover" ? "填满裁切" : "完整留白"} | 成品 ${cw}x${ch}`;
+                    `${layoutText} | ${{cover:"填满裁切", contain:"完整留白", stretch:"铺满拉伸"}[gmFit] || gmFit} | 成品 ${cw}x${ch}`;
             } catch (err) { /* 预览失败静默 */ }
         });
     }
@@ -5878,6 +5982,7 @@ const boxPd = document.getElementById("box-pd-upload");
 const inputPd = document.getElementById("input-pd-upload");
 let pdCanvas = null;
 let pdSrcCache = null;   // 源图 ImageData 缓存（导入后取一次，拖动中不再重复 getImageData）
+let pdGmRects = [];            // 网格预览每图格子矩形（预览点击命中用）
 const pdLow = document.getElementById("pd-slider-low");
 const pdHigh = document.getElementById("pd-slider-high");
 const pdContrast = document.getElementById("pd-slider-contrast");

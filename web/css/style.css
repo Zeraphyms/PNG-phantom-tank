@@ -2506,3 +2506,28 @@ html.dark .restore-cover-body {
   margin-top: 10px;
 }
 .pe-toggles-row .meta-toggle { margin: 0; }
+/* 列表行内的每图裁切下拉 */
+.merge-file-fit {
+  flex: 0 0 auto;
+  max-width: 96px;
+  padding: 3px 6px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--glass);
+  color: var(--text);
+}
+/* 网格拼接：批量裁切操作条 */
+.gm-bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 10px 0 6px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--glass);
+}
+.gm-bulk-bar .meta-toggle { margin: 0; }
+.gm-row-check { flex: 0 0 auto; margin-right: 2px; }
