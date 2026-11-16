@@ -65,7 +65,8 @@ document.addEventListener("DOMContentLoaded", () => {
         "page-weathering":{ emoji: "🏺", name: "电子包浆", path: "/weathering" },
         "page-merge":     { emoji: "🧩", name: "图片处理", path: "/processing" },
         "page-md5":       { emoji: "🧰", name: "图片工具", path: "/md5" },
-        "page-classic":   { emoji: "🌗", name: "经典幻影", path: "/classic" }
+        "page-classic":   { emoji: "🌗", name: "经典幻影", path: "/classic" },
+        "page-free":      { emoji: "🧩", name: "图片拼接", path: "/free" }
     };
 
     function switchPage(targetId, skipUrlSync = false) {
@@ -79,7 +80,7 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById("main-tab-bar").hidden = isFeature;
         document.getElementById("feature-tab-bar").hidden = !isFeature;
         // 图片处理 / 图片工具 两页的功能名换成子功能切换；其他功能页显示功能名
-        const hasSubTabs = targetId === "page-merge" || targetId === "page-md5" || targetId === "page-classic";
+        const hasSubTabs = targetId === "page-merge" || targetId === "page-md5" || targetId === "page-classic" || targetId === "page-free";
         document.getElementById("merge-sub-tabs").hidden = !hasSubTabs;
         document.getElementById("txt-feature-name").hidden = hasSubTabs;
         if (hasSubTabs) {
@@ -3952,8 +3953,8 @@ document.addEventListener("DOMContentLoaded", () => {
     // 图片处理（page-merge）：拼接 / 网格拼接 / 九宫格切图 / 覆盖图片 / 相片处理
     // 图片工具（page-md5）：MD5 哈希 / 图片压缩 / 格式转换
     const mergeSubPanels = {
-        merge: document.getElementById("panel-merge-merge"),
-        gridmerge: document.getElementById("panel-merge-gridmerge"),
+        merge: document.getElementById("panel-free-merge"),
+        gridmerge: document.getElementById("panel-free-gridmerge"),
         grid: document.getElementById("panel-merge-grid"),
         overlay: document.getElementById("panel-merge-overlay"),
         idphoto: document.getElementById("panel-merge-idphoto"),
@@ -3967,17 +3968,18 @@ document.addEventListener("DOMContentLoaded", () => {
     };
     // 页面 → 子标签映射（切页时只显示本页的子标签并回到第一项）
     const SUB_TABS_BY_PAGE = {
-        "page-merge": ["merge", "gridmerge", "grid", "overlay", "idphoto"],
+        "page-merge": ["grid", "overlay", "idphoto"],
+        "page-free": ["merge", "gridmerge", "free"],
         "page-md5": ["md5hash", "imgcompress", "imgconvert"],
         "page-classic": ["mirage", "encode", "decode", "advanced"]
     };
     function applySubTabsForPage(targetId) {
         const allowed = SUB_TABS_BY_PAGE[targetId];
         if (!allowed) return null;
-        // 子标签匹配键：图片工具/图片处理用 data-sub，经典幻影用 data-clsub
-        const attr = targetId === "page-classic" ? "data-clsub" : "data-sub";
+        // 子标签匹配键与容器：经典幻影 data-clsub、自由拼接(图片拼接) 用独立容器 free-sub-tabs，其余 data-sub 于 merge-sub-tabs
+        const attr = targetId === "page-classic" ? "data-clsub" : targetId === "page-free" ? "data-freesub" : "data-sub";
         document.querySelectorAll("#merge-sub-tabs .segmented-btn").forEach(b => {
-            const key = b.getAttribute("data-sub") || b.getAttribute("data-clsub");
+            const key = b.getAttribute(attr);
             b.style.display = allowed.includes(key) ? "" : "none";
             b.classList.toggle("active", key === allowed[0]);
         });
@@ -5797,6 +5799,16 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     });
 
+    // ===== 自由拼接（图片拼接页）子标签切换 =====
+    document.querySelectorAll('#merge-sub-tabs .segmented-btn[data-freesub]').forEach(btn => {
+        btn.addEventListener("click", () => {
+            document.querySelectorAll("#merge-sub-tabs .segmented-btn").forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+            const sub = btn.getAttribute("data-freesub");
+            document.querySelectorAll("#page-free .merge-sub-panel").forEach(p => { p.hidden = p.id !== "panel-free-" + sub; });
+        });
+    });
+
     // ===== 8.9b 光棱制作（Prism Encode，里表双图阈值棋盘混合） =====
     const boxPeInner = document.getElementById("box-pe-inner");
     const inputPeInner = document.getElementById("input-pe-inner");
@@ -6594,7 +6606,7 @@ inputPd.addEventListener("change", async (e) => {
             row.appendChild(thumb);
             const name = document.createElement("span");
             name.className = "merge-file-name";
-            name.style.flex = "1";
+            name.style.flex = "0 1 auto"; name.style.overflow = "hidden"; name.style.textOverflow = "ellipsis"; name.style.whiteSpace = "nowrap"; name.style.minWidth = "100px"; name.style.maxWidth = "180px";
             name.textContent = `${i + 1}. ${item.name}`;
             row.appendChild(name);
             const mkLbl = (t) => { const sp = document.createElement("span"); sp.textContent = t; sp.style.color = "var(--text-faint)"; return sp; };
@@ -6703,7 +6715,418 @@ inputPd.addEventListener("change", async (e) => {
             a.click();
             document.body.removeChild(a);
         }, "image/png");
-    });    const modal = document.getElementById("modal-preview");
+    });    // 8.11 自由拼接：自定义每张图的位置（X/Y）与大小（W/H），支持保持比例、层级叠加
+    const freeDropBox = document.getElementById("free-drop-box");
+    const freeFileInput = document.getElementById("input-free-files");
+    const freeWSlider = document.getElementById("free-slider-w");
+    const freeHSlider = document.getElementById("free-slider-h");
+    let freeLayers = [];      // [{ file, name, img, x, y, w, h, keepRatio }]
+    let freeRaf = 0;
+
+    // 画布尺寸（滑条 ↔ 数字框双向）
+    function freeSetCanvas(which, v, fromSlider) {
+        // 数字框输入中（fromSlider=false）只更新状态不回写输入框，避免打断打字；
+        // 失焦（blur）时才 clamp 并回写。滑条则实时同步。
+        const raw = parseInt(v, 10);
+        if (isNaN(raw)) return;
+        if (which === "w") {
+            freeCanvasW = fromSlider ? Math.max(100, Math.min(10000, raw)) : Math.max(10, raw);
+            freeWSlider.value = String(Math.min(4000, freeCanvasW));
+            if (fromSlider) document.getElementById("free-num-w").value = String(freeCanvasW);
+        } else {
+            freeCanvasH = fromSlider ? Math.max(100, Math.min(10000, raw)) : Math.max(10, raw);
+            freeHSlider.value = String(Math.min(4000, freeCanvasH));
+            if (fromSlider) document.getElementById("free-num-h").value = String(freeCanvasH);
+        }
+        scheduleFreePreview();
+    }
+    let freeCanvasW = 3840, freeCanvasH = 2160;
+    freeWSlider.addEventListener("input", () => freeSetCanvas("w", freeWSlider.value, true));
+    freeHSlider.addEventListener("input", () => freeSetCanvas("h", freeHSlider.value, true));
+    document.getElementById("free-num-w").addEventListener("input", (e) => freeSetCanvas("w", e.target.value, false));
+    document.getElementById("free-num-h").addEventListener("input", (e) => freeSetCanvas("h", e.target.value, false));
+    document.getElementById("free-num-w").addEventListener("blur", (e) => {
+        e.target.value = String(freeCanvasW);
+        freeWSlider.value = String(Math.min(4000, freeCanvasW));
+    });
+    // 画布预设（2K/4K/8K/16K）
+    document.querySelectorAll("#free-preset-group .segmented-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            document.querySelectorAll("#free-preset-group .segmented-btn").forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+            freeSetCanvas("w", btn.getAttribute("data-w"), true);
+            freeSetCanvas("h", btn.getAttribute("data-h"), true);
+        });
+    });
+    document.getElementById("free-num-h").addEventListener("blur", (e) => {
+        e.target.value = String(freeCanvasH);
+        freeHSlider.value = String(Math.min(4000, freeCanvasH));
+    });
+
+    freeDropBox.addEventListener("click", () => freeFileInput.click());
+    enableDropUpload(freeDropBox, freeFileInput);
+    freeFileInput.addEventListener("change", async (e) => {
+        const files = Array.from(e.target.files || []);
+        e.target.value = "";
+        for (const file of files) {
+            try {
+                const img = await loadImage(URL.createObjectURL(file));
+                // 默认布局：按导入顺序纵向排列，宽度 = 画布宽的一半，高度按比例
+                const idx = freeLayers.length;
+                const col = idx % 2, row = Math.floor(idx / 2);
+                const w = Math.round(freeCanvasW / 2);
+                const h = Math.round(w * (img.naturalHeight / img.naturalWidth));
+                const x = col * w, y = row * Math.round(freeCanvasH / Math.max(1, Math.ceil((freeLayers.length + 1) / 2)));
+                freeLayers.push({ file, name: file.name, img, x, y, w, h, rot: 0, keepRatio: false });
+            } catch (err) { /* 单张失败跳过 */ }
+        }
+        renderFreeLayers();
+        scheduleFreePreview();
+    });
+
+    function renderFreeLayers() {
+        const list = document.getElementById("free-layer-list");
+        list.innerHTML = "";
+        freeLayers.forEach((L, i) => {
+            const row = document.createElement("div");
+            row.className = "merge-file-item";
+            row.style.flexWrap = "wrap";
+            // 缩略图
+            // 缩略图容器（图片 + 底下 ✕ 移除）
+            const thumbBox = document.createElement("div");
+            thumbBox.style.cssText = "display:flex;flex-direction:column;align-items:center;gap:2px;flex:0 0 auto;";
+            const thumb = document.createElement("img");
+            thumb.src = L.img.src || L.img.toDataURL("image/jpeg", 0.8);
+            thumb.style.width = "44px"; thumb.style.height = "44px";
+            thumb.style.objectFit = "cover"; thumb.style.borderRadius = "6px";
+            thumb.style.border = "1px solid var(--border)";
+            thumbBox.appendChild(thumb);
+            const del = document.createElement("button");
+            del.className = "merge-file-del";
+            del.textContent = "✕";
+            del.title = "移除";
+            del.style.cssText = "border:none;background:transparent;color:var(--text-faint);cursor:pointer;font-size:13px;padding:0;";
+            del.addEventListener("click", () => { freeLayers.splice(i, 1); renderFreeLayers(); scheduleFreePreview(); });
+            thumbBox.appendChild(del);
+            row.appendChild(thumbBox);
+
+            const mkLbl = (t) => { const sp = document.createElement("span"); sp.textContent = t; sp.style.color = "var(--text-faint)"; return sp; };
+            const mkNum = (val, cb) => {
+                const inN = document.createElement("input");
+                inN.type = "number"; inN.min = "-2000"; inN.max = "10000"; inN.value = String(val);
+                inN.style.width = "60px";
+                inN.addEventListener("input", () => { cb(parseInt(inN.value, 10) || 0); scheduleFreePreview(); });
+                return inN;
+            };
+            row.appendChild(mkLbl("X"));
+            row.appendChild(mkNum(L.x, (v) => { freeLayers[i].x = v; }));
+            row.appendChild(mkLbl("Y"));
+            row.appendChild(mkNum(L.y, (v) => { freeLayers[i].y = v; }));
+            row.appendChild(mkLbl("宽"));
+            row.appendChild(mkNum(L.w, (v) => {
+                freeLayers[i].w = Math.max(1, v);
+                if (freeLayers[i].keepRatio && L.img.naturalWidth) {
+                    freeLayers[i].h = Math.max(1, Math.round(v * (L.img.naturalHeight / L.img.naturalWidth)));
+                }
+                renderFreeLayers();
+            }));
+            row.appendChild(mkLbl("高"));
+            row.appendChild(mkNum(L.h, (v) => { freeLayers[i].h = Math.max(1, v); }));
+            row.appendChild(mkLbl("角度"));
+            const rotIn = mkNum(L.rot || 0, (v) => { freeLayers[i].rot = v; });
+            rotIn.min = "-360"; rotIn.max = "360";
+            row.appendChild(rotIn);
+            // 保持比例（第二行行尾，横排）
+            const krLbl = document.createElement("label");
+            krLbl.className = "meta-toggle";
+            krLbl.style.margin = "0";
+            const krChk = document.createElement("input");
+            krChk.type = "checkbox";
+            krChk.checked = !!L.keepRatio;
+            krChk.addEventListener("change", () => {
+                freeLayers[i].keepRatio = krChk.checked;
+                if (krChk.checked && L.img.naturalWidth) {
+                    freeLayers[i].h = Math.max(1, Math.round(freeLayers[i].w * (L.img.naturalHeight / L.img.naturalWidth)));
+                    renderFreeLayers();
+                }
+            });
+            krLbl.appendChild(krChk);
+            const krSpan = document.createElement("span");
+            krSpan.className = "meta-toggle-text";
+            krSpan.textContent = "保持比例";
+            krLbl.appendChild(krSpan);
+            row.appendChild(krLbl);
+
+            // 拖拽排序（HTML5 DnD）
+            row.draggable = true;
+            row.addEventListener("dragstart", (e) => {
+                freeDragIdx = i;
+                row.classList.add("dragging");
+                try { e.dataTransfer.setData("text/plain", String(i)); } catch (err) {}
+                e.dataTransfer.effectAllowed = "move";
+            });
+            row.addEventListener("dragend", () => {
+                row.classList.remove("dragging");
+                list.querySelectorAll(".merge-file-item").forEach(r => r.classList.remove("drag-over-top", "drag-over-bottom"));
+                freeDragIdx = -1;
+            });
+            row.addEventListener("dragover", (e) => {
+                if (freeDragIdx < 0) return;
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+                const rect = row.getBoundingClientRect();
+                const before = (e.clientY - rect.top) < rect.height / 2;
+                row.classList.toggle("drag-over-top", before);
+                row.classList.toggle("drag-over-bottom", !before);
+            });
+            row.addEventListener("dragleave", () => row.classList.remove("drag-over-top", "drag-over-bottom"));
+            row.addEventListener("drop", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                row.classList.remove("drag-over-top", "drag-over-bottom");
+                let src = freeDragIdx;
+                if (src < 0) {
+                    const raw = e.dataTransfer.getData("text/plain");
+                    if (raw === "" || isNaN(parseInt(raw, 10))) return;
+                    src = parseInt(raw, 10);
+                }
+                if (src < 0 || src >= freeLayers.length) return;
+                const rect = row.getBoundingClientRect();
+                const before = (e.clientY - rect.top) < rect.height / 2;
+                let dst = before ? i : i + 1;
+                if (src === dst || src === dst - 1) return;
+                const [moved] = freeLayers.splice(src, 1);
+                if (dst > src) dst--;
+                freeLayers.splice(dst, 0, moved);
+                renderFreeLayers();
+                scheduleFreePreview();
+            });
+            list.appendChild(row);
+        });
+    }
+
+    let freeRenderRaf = 0;
+    function scheduleFreePreview() {
+        if (freeRenderRaf) return;
+        freeRenderRaf = requestAnimationFrame(() => { freeRenderRaf = 0; renderFreePreview(); });
+    }
+
+    // 实时预览（含选中框与手柄）
+    let freeSelected = -1;   // 当前选中图层索引
+    function renderFreePreview() {
+        const card = document.getElementById("card-free-result");
+        if (freeLayers.length === 0) { card.style.display = "none"; return; }
+        card.style.display = "block";
+        const cv = document.getElementById("canvas-free-out");
+        cv.width = freeCanvasW; cv.height = freeCanvasH;
+        const ctx = cv.getContext("2d");
+        ctx.clearRect(0, 0, freeCanvasW, freeCanvasH);
+        // 按【数组顺序】绘制（后面的盖在前面）——数组顺序 = 列表显示顺序 = 拖拽排序后的顺序
+        // （不再按导入时的 z 字段排序，否则拖拽排序不改变覆盖关系）
+        const ordered = freeLayers;
+        ordered.forEach(L => {
+            if (L.rot) {
+                const cx = L.x + L.w / 2, cy = L.y + L.h / 2;
+                ctx.save();
+                ctx.translate(cx, cy);
+                ctx.rotate(L.rot * Math.PI / 180);
+                ctx.drawImage(L.img, -L.w / 2, -L.h / 2, L.w, L.h);
+                ctx.restore();
+            } else {
+                ctx.drawImage(L.img, L.x, L.y, L.w, L.h);
+            }
+        });
+        // 选中框 + 4 手柄（顶中=旋转 / 右中=拉宽 / 底中=拉高 / 右下=等比缩放），与覆盖图片一致
+        if (freeSelected >= 0 && freeLayers[freeSelected]) {
+            const L = freeLayers[freeSelected];
+            ctx.save();
+            ctx.strokeStyle = "#4A9EFF";
+            ctx.lineWidth = Math.max(2, freeCanvasW / 600);
+            // 旋转后的四角（轴对齐包围盒近似：rot 小角度时包围盒即视觉框）
+            ctx.strokeRect(L.x, L.y, L.w, L.h);
+            const hs = Math.max(6, freeCanvasW / 150);
+            const pts = [
+                [L.x + L.w / 2, L.y],              // 上中：拉高
+                [L.x + L.w, L.y + L.h / 2],        // 右中：拉宽
+                [L.x + L.w, L.y + L.h],            // 右下：等比缩放
+                [L.x + L.w / 2, L.y + L.h],        // 下中：拉高
+                [L.x, L.y + L.h / 2],              // 左中：拉宽
+                [L.x + L.w, L.y]                   // 右上：旋转
+            ];
+            ctx.fillStyle = "#4A9EFF";
+            pts.forEach(([px, py]) => {
+                ctx.beginPath();
+                ctx.arc(px, py, hs, 0, Math.PI * 2);
+                ctx.fill();
+            });
+            ctx.restore();
+        }
+        cv.hidden = false;
+        document.getElementById("txt-free-summary").textContent =
+            `${freeLayers.length} 张图层 | 画布 ${freeCanvasW}x${freeCanvasH}`;
+    }
+
+    // ---- 预览交互：点选图层 / 拖动移动 / 8 控制点缩放 ----
+    function freeCanvasPt(e) {
+        const cv = document.getElementById("canvas-free-out");
+        const rect = cv.getBoundingClientRect();
+        return {
+            x: (e.clientX - rect.left) * (cv.width / rect.width),
+            y: (e.clientY - rect.top) * (cv.height / rect.height)
+        };
+    }
+    // 命中的控制点（0=上中拉高 1=右中拉宽 2=右下等比 3=下中拉高 4=左中拉宽 5=右上旋转）
+    function freeHitHandle(L, p) {
+        // 6 手柄：0=上中拉高 1=右中拉宽 2=右下等比 3=下中拉高 4=左中拉宽 5=右上旋转
+        const hs = Math.max(6, freeCanvasW / 150) * 2.2;
+        const pts = [
+            [L.x + L.w / 2, L.y],              // 0 上中
+            [L.x + L.w, L.y + L.h / 2],        // 1 右中
+            [L.x + L.w, L.y + L.h],            // 2 右下
+            [L.x + L.w / 2, L.y + L.h],        // 3 下中
+            [L.x, L.y + L.h / 2],              // 4 左中
+            [L.x + L.w, L.y]                   // 5 右上（旋转）
+        ];
+        for (let i = 0; i < 6; i++) {
+            if (Math.hypot(p.x - pts[i][0], p.y - pts[i][1]) <= hs) return i;
+        }
+        return -1;
+    }
+    const freeOutCv = document.getElementById("canvas-free-out");
+    function L_rotOf(L) { return L.rot || 0; }
+    let freeGesture = null;   // { mode, idx, start, s0 }
+
+    freeOutCv.addEventListener("pointerdown", (e) => {
+        if (freeLayers.length === 0) return;
+        const p = freeCanvasPt(e);
+        // 从顶层往下命中图层
+        let hitIdx = -1;
+        for (let i = freeLayers.length - 1; i >= 0; i--) {
+            const L = freeLayers[i];
+            if (p.x >= L.x && p.x <= L.x + L.w && p.y >= L.y && p.y <= L.y + L.h) { hitIdx = i; break; }
+        }
+        // 已选图层优先命中控制点（0=上中拉高 1=右中拉宽 2=右下等比 3=下中拉高 4=左中拉宽 5=右上旋转）
+        if (freeSelected >= 0 && freeLayers[freeSelected]) {
+            const handle = freeHitHandle(freeLayers[freeSelected], p);
+            if (handle >= 0) {
+                const modes = ["scaleY", "scaleX", "scale", "scaleY", "scaleX", "rotate"];
+                freeGesture = { mode: modes[handle], handle, idx: freeSelected, start: p, s0: { ...freeLayers[freeSelected], rot: L_rotOf(freeLayers[freeSelected]) } };
+                try { freeOutCv.setPointerCapture(e.pointerId); } catch (err) {}
+                e.preventDefault();
+                return;
+            }
+        }
+        freeSelected = hitIdx;
+        renderFreePreview();
+        if (hitIdx >= 0) {
+            freeGesture = { mode: "move", idx: hitIdx, start: p, s0: { ...freeLayers[hitIdx] } };
+            try { freeOutCv.setPointerCapture(e.pointerId); } catch (err) {}
+            e.preventDefault();
+        }
+    });
+
+    freeOutCv.addEventListener("pointermove", (e) => {
+        if (!freeGesture) return;
+        const p = freeCanvasPt(e);
+        const g = freeGesture;
+        const L = freeLayers[g.idx];
+        if (g.mode === "move") {
+            L.x = g.s0.x + (p.x - g.start.x);
+            L.y = g.s0.y + (p.y - g.start.y);
+            // 吸附：图片四边贴近画布四边 + 其他图层四边（±12px）自动贴合
+            const snap = Math.max(8, freeCanvasW / 300);
+            const edges = [[0, "x"], [freeCanvasW - L.w, "x"], [0, "y"], [freeCanvasH - L.h, "y"]];
+            freeLayers.forEach((other, oi) => {
+                if (oi === g.idx) return;
+                edges.push([other.x, "x"], [other.x + other.w - L.w, "x"],
+                           [other.y, "y"], [other.y + other.h - L.h, "y"]);
+            });
+            for (const [target, axis] of edges) {
+                if (axis === "x" && Math.abs(L.x - target) < snap) L.x = Math.round(target);
+                if (axis === "y" && Math.abs(L.y - target) < snap) L.y = Math.round(target);
+            }
+            syncFreeRowInputs(g.idx);
+            renderFreePreview();
+        } else if (g.mode === "rotate") {
+            // 顶中：绕图层中心旋转
+            const cx = g.s0.x + g.s0.w / 2, cy = g.s0.y + g.s0.h / 2;
+            const a0 = Math.atan2(g.start.y - cy, g.start.x - cx);
+            const a1 = Math.atan2(p.y - cy, p.x - cx);
+            L.rot = Math.round(g.s0.rot + (a1 - a0) * 180 / Math.PI);
+            syncFreeRowInputs(g.idx);
+            renderFreePreview();
+        } else if (g.mode === "scaleX") {
+            // 拉宽：右中=右边动；左中=左边动（右边不动）
+            const isLeft = g.handle === 4;
+            if (isLeft) {
+                const nx = g.s0.x + (p.x - g.start.x);
+                L.w = Math.max(1, Math.round(g.s0.w - (p.x - g.start.x)));
+                L.x = Math.round(nx);
+            } else {
+                L.w = Math.max(1, Math.round(g.s0.w + (p.x - g.start.x)));
+            }
+            syncFreeRowInputs(g.idx);
+            renderFreePreview();
+        } else if (g.mode === "scaleY") {
+            // 拉高：下中=底边动；上中=顶边动（底边不动）
+            const isTop = g.handle === 0;
+            if (isTop) {
+                const ny = g.s0.y + (p.y - g.start.y);
+                L.h = Math.max(1, Math.round(g.s0.h - (p.y - g.start.y)));
+                L.y = Math.round(ny);
+            } else {
+                L.h = Math.max(1, Math.round(g.s0.h + (p.y - g.start.y)));
+            }
+            syncFreeRowInputs(g.idx);
+            renderFreePreview();
+        } else if (g.mode === "scale") {
+            // 右下：等比缩放（左上角不动，按位移投影取较大系数）
+            const dx = (p.x - g.start.x) / Math.max(1, g.s0.w);
+            const dy = (p.y - g.start.y) / Math.max(1, g.s0.h);
+            const k = Math.max(0.05, 1 + Math.max(dx, dy));
+            L.w = Math.max(1, Math.round(g.s0.w * k));
+            L.h = Math.max(1, Math.round(g.s0.h * k));
+            syncFreeRowInputs(g.idx);
+            renderFreePreview();
+        }
+    });
+
+    freeOutCv.addEventListener("pointerup", (e) => {
+        if (freeGesture) {
+            freeGesture = null;
+            renderFreeLayers();   // 松手同步列表数字
+        }
+    });
+
+    function syncFreeRowInputs(idx) {
+        const list = document.getElementById("free-layer-list");
+        const row = list.children[idx];
+        if (!row) return;
+        const L = freeLayers[idx];
+        const nums = row.querySelectorAll('input[type=number]');
+        if (nums.length >= 4) {
+            nums[0].value = String(L.x); nums[1].value = String(L.y);
+            nums[2].value = String(L.w); nums[3].value = String(L.h);
+        }
+    }
+
+    document.getElementById("btn-free-run").addEventListener("click", () => {
+        if (freeLayers.length === 0) { alert("请先导入图片"); return; }
+        renderFreePreview();
+    });
+
+    document.getElementById("btn-free-download").addEventListener("click", () => {
+        const cv = document.getElementById("canvas-free-out");
+        if (cv.hidden) { alert("请先生成"); return; }
+        cv.toBlob(blob => {
+            const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14);
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            a.download = `free_${stamp}.png`;
+            document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        }, "image/png");
+    });
+    const modal = document.getElementById("modal-preview");
     const modalImg = document.getElementById("modal-img");
     const modalStage = document.getElementById("modal-stage");
     const zoomLabel = document.getElementById("txt-zoom-level");

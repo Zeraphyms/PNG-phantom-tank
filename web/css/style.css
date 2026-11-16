@@ -2531,3 +2531,10 @@ html.dark .restore-cover-body {
 }
 .gm-bulk-bar .meta-toggle { margin: 0; }
 .gm-row-check { flex: 0 0 auto; margin-right: 2px; }
+
+/* 自由拼接：预览边框直角（无圆角） */
+#page-free .merge-preview-frame { border-radius: 0; }
+#page-free .merge-preview-canvas { border-radius: 0; }
+
+/* 自由拼接：图层列表行内换行（角度第二行） */
+#free-layer-list .merge-file-item { flex-wrap: wrap; }
