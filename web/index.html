@@ -13,7 +13,7 @@
       document.documentElement.classList.toggle("dark", !!dark);
     })();
   </script>
-  <link rel="stylesheet" href="css/style.css?v=1.6.1.1">
+  <link rel="stylesheet" href="css/style.css?v=1.6.1.3">
 </head>
 <body>
 
@@ -43,10 +43,6 @@
   <!-- 更多功能菜单 -->
   <div id="menu-more" class="menu-sheet" hidden>
     <div class="menu-sheet-title">更多功能</div>
-    <button class="menu-item" data-tab="page-split">
-      <span class="menu-item-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18"/></svg></span>
-      <span class="menu-item-text"><strong>拆解动图</strong><em>把 GIF 逐帧拆成 PNG</em></span>
-    </button>
     <button class="menu-item" data-tab="page-chaos">
       <span class="menu-item-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"/></svg></span>
       <span class="menu-item-text"><strong>图片混淆</strong><em>曲线置换混淆，可无损还原</em></span>
@@ -61,7 +57,7 @@
     </button>
     <button class="menu-item" data-tab="page-merge">
       <span class="menu-item-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="18" rx="1.5"/><rect x="14" y="3" width="7" height="18" rx="1.5"/></svg></span>
-      <span class="menu-item-text"><strong>图片处理</strong><em>九宫格切图 / 覆盖图 / 证件照</em></span>
+      <span class="menu-item-text"><strong>图片处理</strong><em>拆解动图 / 九宫格切图 / 覆盖图 / 证件照</em></span>
     </button>
     <button class="menu-item" data-tab="page-classic">
       <span class="menu-item-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none"/></svg></span>
@@ -87,6 +83,7 @@
     <div class="tab-bar feature-bar" id="feature-tab-bar" hidden>
       <div class="feature-bar-title" id="txt-feature-name"><span class="feature-name-wrap"><span class="feature-name-emoji" id="txt-feature-emoji"></span><span id="txt-feature-text">功能</span></span></div>
       <div class="segmented feature-sub-tabs" id="merge-sub-tabs" hidden>
+        <button class="segmented-btn" data-sub="split">拆解动图</button>
         <button class="segmented-btn" data-sub="grid">九宫格切图</button>
         <button class="segmented-btn" data-sub="overlay">覆盖图片</button>
         <button class="segmented-btn" data-sub="idphoto">相片处理</button>
@@ -282,32 +279,6 @@
       </div>
     </section>
 
-    <!-- PAGE 3: 拆解动图 -->
-    <section id="page-split" class="tab-page">
-      <div class="card">
-        <div class="card-title"><span class="step-badge">1</span><span class="title-text">拆解 GIF 动图</span></div>
-        <div class="card-desc">将 GIF 动图逐帧拆解为 PNG 图片，可一键保存全部帧</div>
-        <div class="upload-box" id="box-split-upload">
-          <input type="file" id="input-split-images" accept="image/gif,.gif" multiple style="display: none;">
-          <div class="upload-icon">🎞️</div>
-          <div class="upload-text">点击或拖拽 GIF 动图到这里</div>
-          <div class="upload-hint">支持一次性选择多个 GIF 动图批量拆解</div>
-          <img id="img-split-src-preview" class="file-preview-img" alt="动图预览">
-        </div>
-        <div id="badge-split-info" class="file-info-badge"></div>
-      </div>
-
-      <button id="btn-do-split" class="btn-primary-large">✂️ 立即拆解 GIF 动图</button>
-
-      <div id="card-split-result" class="card result-card">
-        <div class="card-title" id="txt-split-title">✂️ 动图拆解完成</div>
-        <div id="split-frame-grid" class="split-frame-grid"></div>
-        <div id="txt-split-summary" class="card-desc" style="margin-top: 10px; margin-bottom: 0;"></div>
-        <div class="action-row">
-          <button id="btn-download-split" class="btn-primary-large" style="margin-top: 0;">💾 一键保存全部帧</button>
-        </div>
-      </div>
-    </section>
 
     <!-- PAGE 4: 历史记录 -->
     <section id="page-history" class="tab-page">
@@ -617,6 +588,32 @@
       
 
       <!-- 子面板 2: 九宫格切图 -->
+      <div id="panel-merge-split" class="merge-sub-panel" hidden>
+      <div class="card">
+        <div class="card-title"><span class="step-badge">1</span><span class="title-text">拆解 GIF 动图</span></div>
+        <div class="card-desc">将 GIF 动图逐帧拆解为 PNG 图片，可一键保存全部帧</div>
+        <div class="upload-box" id="box-split-upload">
+          <input type="file" id="input-split-images" accept="image/gif,.gif" multiple style="display: none;">
+          <div class="upload-icon">🎞️</div>
+          <div class="upload-text">点击或拖拽 GIF 动图到这里</div>
+          <div class="upload-hint">支持一次性选择多个 GIF 动图批量拆解</div>
+          <img id="img-split-src-preview" class="file-preview-img" alt="动图预览">
+        </div>
+        <div id="badge-split-info" class="file-info-badge"></div>
+      </div>
+
+      <button id="btn-do-split" class="btn-primary-large">✂️ 立即拆解 GIF 动图</button>
+
+      <div id="card-split-result" class="card result-card">
+        <div class="card-title" id="txt-split-title">✂️ 动图拆解完成</div>
+        <div id="split-frame-grid" class="split-frame-grid"></div>
+        <div id="txt-split-summary" class="card-desc" style="margin-top: 10px; margin-bottom: 0;"></div>
+        <div class="action-row">
+          <button id="btn-download-split" class="btn-primary-large" style="margin-top: 0;">💾 一键保存全部帧</button>
+        </div>
+      </div>
+    </div>
+
       <div id="panel-merge-grid" class="merge-sub-panel" hidden>
         <div class="card">
           <div class="card-title"><span class="step-badge">1</span><span class="title-text">选择图片</span></div>
@@ -1630,7 +1627,7 @@
 <script src="js/MiniZlib.js"></script>
 <script src="js/default_cover.js"></script>
 <script src="js/ew_watermarks.js"></script>
-<script src="js/app.js?v=1.6.1.1"></script>
+<script src="js/app.js?v=1.6.1.3"></script>
 
 </body>
 </html>

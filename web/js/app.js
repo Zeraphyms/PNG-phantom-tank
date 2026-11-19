@@ -59,7 +59,6 @@ document.addEventListener("DOMContentLoaded", () => {
     // 主 Tab 与「更多功能」子功能的页面 id → 名称/路径映射
     // emoji 单独存：功能栏里 emoji 绝对定位在文字左侧，不参与居中计算
     const FEATURE_PAGES = {
-        "page-split":     { emoji: "✂️", name: "拆解动图", path: "/split" },
         "page-chaos":     { emoji: "🌀", name: "图片混淆", path: "/chaos" },
         "page-clean":     { emoji: "🧹", name: "清除信息", path: "/clean" },
         "page-weathering":{ emoji: "🏺", name: "电子包浆", path: "/weathering" },
@@ -3953,6 +3952,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // 图片处理（page-merge）：拼接 / 网格拼接 / 九宫格切图 / 覆盖图片 / 相片处理
     // 图片工具（page-md5）：MD5 哈希 / 图片压缩 / 格式转换
     const mergeSubPanels = {
+        split: document.getElementById("panel-merge-split"),
         merge: document.getElementById("panel-free-merge"),
         gridmerge: document.getElementById("panel-free-gridmerge"),
         grid: document.getElementById("panel-merge-grid"),
@@ -3968,7 +3968,7 @@ document.addEventListener("DOMContentLoaded", () => {
     };
     // 页面 → 子标签映射（切页时只显示本页的子标签并回到第一项）
     const SUB_TABS_BY_PAGE = {
-        "page-merge": ["grid", "overlay", "idphoto"],
+        "page-merge": ["split", "grid", "overlay", "idphoto"],
         "page-free": ["merge", "gridmerge", "free"],
         "page-md5": ["md5hash", "imgcompress", "imgconvert"],
         "page-classic": ["mirage", "encode", "decode", "advanced"]
