@@ -251,6 +251,14 @@ html.dark #btn-theme .icon-moon { display: none; }
   left: 50%;
   transform: translateX(-50%);
   width: min(92%, 430px);
+  /* 屏幕矮/手机：限制高度并允许内部滚动，避免菜单超出屏幕且滑不动 */
+  max-height: calc(100vh - 78px);
+  max-height: calc(100dvh - 78px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
   background: var(--glass-strong);
   -webkit-backdrop-filter: saturate(180%) blur(var(--glass-blur));
   backdrop-filter: saturate(180%) blur(var(--glass-blur));
@@ -258,6 +266,7 @@ html.dark #btn-theme .icon-moon { display: none; }
   border-radius: var(--radius);
   box-shadow: var(--shadow-md);
   padding: 8px;
+  padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
   z-index: 120;
   display: flex;
   flex-direction: column;
@@ -266,6 +275,7 @@ html.dark #btn-theme .icon-moon { display: none; }
 }
 
 .menu-sheet[hidden] { display: none; }
+
 
 @keyframes menu-in {
   from { opacity: 0; transform: translateX(-50%) translateY(-8px) scale(.98); }
@@ -2538,3 +2548,24 @@ html.dark .restore-cover-body {
 
 /* 自由拼接：图层列表行内换行（角度第二行） */
 #free-layer-list .merge-file-item { flex-wrap: wrap; }
+
+/* 小屏手机 & 矮屏（横屏）：菜单铺满可用高度，条目压缩一点，保证 8 个功能都能滑到 */
+@media (max-width: 520px), (max-height: 560px) {
+  .menu-sheet {
+    top: 60px;
+    width: calc(100% - 20px);
+    max-height: calc(100dvh - 68px);
+    padding: 6px;
+  }
+  .menu-item {
+    padding: 9px 10px;
+    gap: 10px;
+  }
+  .menu-item-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 9px;
+  }
+  .menu-item-text strong { font-size: 13px; }
+  .menu-item-text em { font-size: 11px; }
+}
