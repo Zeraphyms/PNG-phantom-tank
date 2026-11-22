@@ -1018,13 +1018,10 @@ document.addEventListener("DOMContentLoaded", () => {
     // 6.6 图片混沌功能
     const boxChaos = document.getElementById("box-chaos-upload");
     const inputChaos = document.getElementById("input-chaos-image");
-    let chaosSourceCanvas = null;   // 当前原图（已按尺寸限制规范化）
-    let chaosResultBlob = null;
-    let chaosResultUrl = null;
+
     let chaosMode = "enc";
     let chaosNoScale = false;   // 是否按原图尺寸处理（不缩小）
-    let chaosBatchMode = false; // 多图批量模式开关
-    let chaosBatchFiles = [];   // 多图模式下已选文件列表
+    let chaosBatchFiles = [];   // 已选文件列表（导入累积，统一批量处理）
     let chaosBatchResults = []; // 多图批量处理结果 {blob, filename, url, name}
 
     // 图片 → 规范化 canvas（按"不缩小"开关决定是否压缩尺寸），失败抛错
@@ -1064,24 +1061,6 @@ document.addEventListener("DOMContentLoaded", () => {
     enableDropUpload(boxChaos, inputChaos);
 
     // 单图 / 多图模式切换
-    function applyChaosModeUI() {
-        const btn = document.getElementById("btn-chaos-mode");
-        const uploadText = boxChaos.querySelector(".upload-text");
-        const uploadHint = boxChaos.querySelector(".upload-hint");
-        btn.textContent = chaosBatchMode ? "切换单图模式" : "切换多图模式";
-        // 多图模式没有"单一原图"概念，隐藏单图预览框与"还原为原图"按钮
-        document.getElementById("chaos-single-preview-row").style.display = chaosBatchMode ? "none" : "";
-        document.getElementById("btn-chaos-reset").style.display = chaosBatchMode ? "none" : "";
-        if (!chaosBatchMode) {
-            document.getElementById("card-chaos-batch").style.display = "none";
-            uploadText.textContent = "点击或拖拽图片到这里";
-            uploadHint.textContent = "处理全程在本地浏览器完成，不上传任何服务器";
-        } else {
-            uploadText.textContent = "点击或拖拽图片到这里 (可多选)";
-            uploadHint.textContent = "一次选多张，统一混淆或统一解混淆";
-        }
-    }
-
     function resetChaosUploadBox() {
         const preview = document.getElementById("img-chaos-preview");
         preview.removeAttribute("src");
@@ -1102,80 +1081,56 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById("card-chaos-batch").style.display = "none";
     }
 
-    document.getElementById("btn-chaos-mode").addEventListener("click", () => {
-        chaosBatchMode = !chaosBatchMode;
-        chaosSourceCanvas = null;
+;
+
+    // 多图模式：渲染已选文件列表（通用列表模板）+ 更新徽标
+    function refreshChaosBatchList() {
+        renderFileList(chaosBatchFiles, (i) => {
+            chaosBatchFiles.splice(i, 1);
+            clearChaosBatchResults();
+            refreshChaosBatchList();
+        }, { containerId: "chaos-file-list", actionsId: "chaos-file-actions" });
+        const badge = document.getElementById("badge-chaos-info");
+        badge.style.display = "block";
+        badge.style.color = "";
+        badge.textContent = chaosBatchFiles.length === 0
+            ? "未选择图片"
+            : `已选 ${chaosBatchFiles.length} 张图片`;
+    }
+
+    document.getElementById("btn-chaos-clear-files").addEventListener("click", () => {
         chaosBatchFiles = [];
-        clearChaosResult();
         clearChaosBatchResults();
-        resetChaosUploadBox();
-        // 切换 multiple 属性并清空已选，避免上一种模式的残留文件
-        if (chaosBatchMode) inputChaos.setAttribute("multiple", "");
-        else inputChaos.removeAttribute("multiple");
-        inputChaos.value = "";
-        applyChaosModeUI();
+        refreshChaosBatchList();
     });
-    applyChaosModeUI();
 
     inputChaos.addEventListener("change", async (e) => {
         if (!e.target.files || e.target.files.length === 0) return;
 
-        // 多图批量模式：只记录文件，处理时统一转 canvas；重新选图会清空旧结果
-        if (chaosBatchMode) {
-            chaosBatchFiles = Array.from(e.target.files);
-            clearChaosBatchResults();
-            const preview = document.getElementById("img-chaos-preview");
-            preview.src = URL.createObjectURL(chaosBatchFiles[0]);
-            preview.style.display = "block";
-            boxChaos.querySelector(".upload-icon").style.display = "none";
-            boxChaos.querySelector(".upload-text").style.display = "none";
-            boxChaos.querySelector(".upload-hint").style.display = "none";
+        // 批量模式：导入累积追加（多次导入累加，不清空上一轮），同名同大小自动去重
+        {
+            const incoming = Array.from(e.target.files);
+            const key = (f) => `${f.name}|${f.size}`;
+            const seen = new Set(chaosBatchFiles.map(key));
+            let added = 0;
+            for (const f of incoming) {
+                if (seen.has(key(f))) continue;
+                chaosBatchFiles.push(f);
+                seen.add(key(f));
+                added++;
+            }
+            // 跳过提示走徽标（不用 alert，避免打断操作）
+            if (added > 0) clearChaosBatchResults();
+            refreshChaosBatchList();
             const badge = document.getElementById("badge-chaos-info");
-            badge.style.display = "block";
-            badge.style.color = "";
-            badge.textContent = chaosBatchFiles.length === 1
-                ? `已选: ${chaosBatchFiles[0].name}`
-                : `已批量多选 ${chaosBatchFiles.length} 张图片`;
-            return;
-        }
-
-        const file = e.target.files[0];
-        const preview = document.getElementById("img-chaos-preview");
-
-        try {
-            chaosSourceCanvas = await chaosFileToCanvas(file);
-
-            const srcUrl = chaosSourceCanvas.toDataURL("image/jpeg", 0.95);
-            preview.src = srcUrl;
-            preview.style.display = "block";
-            boxChaos.querySelector(".upload-icon").style.display = "none";
-            boxChaos.querySelector(".upload-text").style.display = "none";
-            boxChaos.querySelector(".upload-hint").style.display = "none";
-
-            clearChaosResult();
-
-            const badge = document.getElementById("badge-chaos-info");
-            badge.style.display = "block";
-            badge.textContent = `已选: ${file.name} (${chaosSourceCanvas.width}x${chaosSourceCanvas.height})`;
-            badge.style.color = "";
-        } catch (err) {
-            alert("图片加载失败: " + err.message);
+            badge.textContent = added === 0
+                ? `已选 ${chaosBatchFiles.length} 张图片（本次全部重复，未新增）`
+                : (incoming.length - added > 0
+                    ? `已选 ${chaosBatchFiles.length} 张图片（本次跳过重复 ${incoming.length - added} 张）`
+                    : `已选 ${chaosBatchFiles.length} 张图片`);
+            e.target.value = "";
         }
     });
-
-    function clearChaosResult() {
-        if (chaosResultUrl) {
-            URL.revokeObjectURL(chaosResultUrl);
-            chaosResultUrl = null;
-        }
-        chaosResultBlob = null;
-        const outImgEl = document.getElementById("img-chaos-out");
-        outImgEl.removeAttribute("src");
-        outImgEl.hidden = true;
-        document.getElementById("chaos-empty-out").hidden = false;
-        document.getElementById("chaos-result-actions").style.display = "none";
-        document.getElementById("txt-chaos-summary").textContent = "";
-    }
 
     document.querySelectorAll("#chaos-mode-group .segmented-btn").forEach(btn => {
         btn.addEventListener("click", () => {
@@ -1195,89 +1150,14 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     document.getElementById("btn-chaos-run").addEventListener("click", () => {
-        // 多图批量模式：逐张转 canvas → 统一混淆/解混淆 → 网格展示
-        if (chaosBatchMode) {
-            if (!chaosBatchFiles || chaosBatchFiles.length === 0) {
-                alert("请先选择要处理的图片");
-                return;
-            }
-            runChaosBatch();
+        // 批量处理：逐张转 canvas → 统一混淆/解混淆 → 网格展示
+        if (!chaosBatchFiles || chaosBatchFiles.length === 0) {
+            alert("请先选择要处理的图片");
             return;
         }
-
-        if (!chaosSourceCanvas) {
-            alert("请先选择一张图片");
-            return;
-        }
-
-        const btn = document.getElementById("btn-chaos-run");
-        btn.disabled = true;
-        const label = chaosMode === "enc" ? "混淆" : "解混淆";
-        btn.textContent = `⏳ 正在${label}中...`;
-
-        setTimeout(() => {
-            try {
-                const resultCanvas = runChaos(chaosSourceCanvas);
-                resultCanvas.toBlob(blob => {
-                    if (!blob) throw new Error("导出结果失败");
-
-                    if (chaosResultUrl) URL.revokeObjectURL(chaosResultUrl);
-                    chaosResultBlob = blob;
-                    chaosResultUrl = URL.createObjectURL(blob);
-
-                    const outEl = document.getElementById("img-chaos-out");
-                    outEl.src = chaosResultUrl;
-                    outEl.hidden = false;
-                    document.getElementById("chaos-empty-out").hidden = true;
-                    document.getElementById("txt-chaos-label-out").textContent =
-                        chaosMode === "enc" ? "混淆结果" : "解混淆结果";
-                    document.getElementById("chaos-result-actions").style.display = "flex";
-                    document.getElementById("txt-chaos-summary").textContent =
-                        `${label}完成 | 尺寸 ${resultCanvas.width}x${resultCanvas.height} | 大小 ${(blob.size / 1024).toFixed(1)} KB`;
-
-                    btn.disabled = false;
-                    refreshChaosActionState();
-                }, "image/jpeg", 0.95);
-            } catch (err) {
-                alert(`${label}失败: ` + err.message);
-                btn.disabled = false;
-                refreshChaosActionState();
-            }
-        }, 30);
+        runChaosBatch();
     });
 
-    document.getElementById("btn-chaos-reset").addEventListener("click", () => {
-        if (!chaosSourceCanvas) {
-            alert("请先选择一张图片");
-            return;
-        }
-        clearChaosResult();
-        const resetOut = document.getElementById("img-chaos-out");
-        resetOut.src = chaosSourceCanvas.toDataURL("image/jpeg", 0.95);
-        resetOut.hidden = false;
-        document.getElementById("chaos-empty-out").hidden = true;
-        document.getElementById("txt-chaos-label-out").textContent = "原图（已还原）";
-        alert("已把处理结果恢复为原图（未改动磁盘上的图片）");
-    });
-
-    document.getElementById("btn-chaos-download").addEventListener("click", () => {
-        if (!chaosResultBlob) return;
-        const a = document.createElement("a");
-        const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14);
-        a.href = chaosResultUrl;
-        a.download = `chaos_${stamp}.jpg`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-    });
-
-    // 点击解混淆 / 混淆结果可查看大图（支持缩放）
-    document.getElementById("img-chaos-out").addEventListener("click", () => {
-        const el = document.getElementById("img-chaos-out");
-        if (el && el.getAttribute("src") && !el.hidden) {
-            showModal(el.src);
-        }
-    });
     refreshChaosActionState();
 
     // 多图批量处理：逐张加载 → 混淆/解混淆 → 打包结果网格

@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
@@ -13,7 +13,7 @@
       document.documentElement.classList.toggle("dark", !!dark);
     })();
   </script>
-  <link rel="stylesheet" href="css/style.css?v=1.6.1.3">
+  <link rel="stylesheet" href="css/style.css?v=1.6.1.5">
 </head>
 <body>
 
@@ -351,9 +351,6 @@
         <div class="card-title">
           <span class="step-badge">1</span>
           <span class="title-text">选择图片</span>
-          <span class="title-actions">
-            <button id="btn-chaos-mode" class="btn-outline">切换多图模式</button>
-          </span>
         </div>
         <div class="card-desc">支持 JPG、PNG、WEBP 等常见格式，超过 2000 万像素或单边超 6000 像素会自动等比缩小</div>
         <label class="meta-toggle" id="wrap-chaos-noscale">
@@ -361,12 +358,15 @@
           <span class="meta-toggle-text"><span class="warn-badge">!</span>不缩小（按原图尺寸处理）：超大图会占用大量内存，可能导致浏览器卡顿甚至崩溃，请谨慎选择</span>
         </label>
         <div class="upload-box" id="box-chaos-upload">
-          <input type="file" id="input-chaos-image" accept="image/*" style="display: none;">
+          <input type="file" id="input-chaos-image" accept="image/*" multiple style="display: none;">
           <div class="upload-icon">🌀</div>
-          <div class="upload-text">点击或拖拽图片到这里</div>
-          <div class="upload-hint">处理全程在本地浏览器完成，不上传任何服务器</div>
-          <img id="img-chaos-preview" class="file-preview-img" alt="原图预览">
+          <div class="upload-text">点击或拖拽图片到这里（可多选）</div>
+          <div class="upload-hint">一次可选多张、分多次导入累积；处理全程在本地浏览器完成，不上传任何服务器</div>
         </div>
+          <div id="chaos-file-list" class="merge-file-list"></div>
+          <div class="action-row" id="chaos-file-actions" style="display: none;">
+            <button id="btn-chaos-clear-files" class="btn-outline" style="flex: 1;">🧹 全部移除</button>
+          </div>
         <div id="badge-chaos-info" class="file-info-badge"></div>
       </div>
 
@@ -377,22 +377,8 @@
           <button class="segmented-btn active" data-mode="enc">混淆</button>
           <button class="segmented-btn" data-mode="dec">解混淆</button>
         </div>
-        <div class="chaos-preview-row" id="chaos-single-preview-row">
-          <div class="chaos-preview-box">
-            <div class="chaos-preview-title" id="txt-chaos-label-out">处理结果</div>
-            <div class="chaos-preview-frame">
-              <img id="img-chaos-out" class="preview-img zoomable" alt="处理结果" title="点击查看大图" hidden>
-              <span class="chaos-preview-empty" id="chaos-empty-out">待处理</span>
-            </div>
-          </div>
-        </div>
         <div class="action-row">
           <button id="btn-chaos-run" class="btn-primary-large" style="margin-top: 0;">🌀 立即处理</button>
-          <button id="btn-chaos-reset" class="btn-outline" style="flex: 0 0 auto;">还原为原图</button>
-        </div>
-        <div id="txt-chaos-summary" class="card-desc" style="margin-top: 10px; margin-bottom: 0;"></div>
-        <div class="action-row" id="chaos-result-actions" style="display: none;">
-          <button id="btn-chaos-download" class="btn-primary-large" style="margin-top: 0;">💾 保存结果图片</button>
         </div>
       </div>
 
@@ -1627,7 +1613,7 @@
 <script src="js/MiniZlib.js"></script>
 <script src="js/default_cover.js"></script>
 <script src="js/ew_watermarks.js"></script>
-<script src="js/app.js?v=1.6.1.3"></script>
+<script src="js/app.js?v=1.6.1.5"></script>
 
 </body>
 </html>
