@@ -1019,7 +1019,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const boxChaos = document.getElementById("box-chaos-upload");
     const inputChaos = document.getElementById("input-chaos-image");
 
-    let chaosMode = "enc";
+    let chaosMode = "dec";   // 默认解混淆（最常用的场景是还原被混淆的图）
     let chaosNoScale = false;   // 是否按原图尺寸处理（不缩小）
     let chaosBatchFiles = [];   // 已选文件列表（导入累积，统一批量处理）
     let chaosBatchResults = []; // 多图批量处理结果 {blob, filename, url, name}
@@ -1137,6 +1137,7 @@ document.addEventListener("DOMContentLoaded", () => {
             document.querySelectorAll("#chaos-mode-group .segmented-btn").forEach(b => b.classList.remove("active"));
             btn.classList.add("active");
             chaosMode = btn.getAttribute("data-mode");
+            refreshChaosActionState();
         });
     });
 
